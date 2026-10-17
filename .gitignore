@@ -23,4 +23,10 @@ out_verify/
 # Frontend build artifacts (for React phase)
 node_modules/
 dist/
+.env
 .env.local
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
