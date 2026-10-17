@@ -1,0 +1,26 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Large datasets and archives (kept locally on device only)
+data/
+*.zip
+*.tar.gz
+*.gz
+
+# Logs and transient evaluation artifacts
+*.log
+out_verify/
+.DS_Store
+
+# Frontend build artifacts (for React phase)
+node_modules/
+dist/
+.env.local
