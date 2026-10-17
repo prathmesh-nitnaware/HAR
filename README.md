@@ -271,6 +271,8 @@ D:\HAR\
 │   ├── sample_stairs_multiwindow_384.csv # 384-row verified walking-upstairs sample (multi-window)
 │   ├── template_6ch_imu.csv           # 6-channel raw IMU template schema
 │   └── template_9ch_schema.csv        # 9-channel pre-separated template schema
+├── tests/                             # Automated backend regression & inference tests
+│   └── test_inference.py              # Unit tests for preprocessing, windowing, and models
 └── frontend/                          # React + TypeScript + Vite Frontend Application
     ├── .env.example                   # API base URL configuration template
     ├── package.json                   # React dependencies and test scripts
@@ -422,15 +424,25 @@ The frontend will be available at:
 
 *(Note: The frontend connects to the backend via `VITE_API_BASE_URL` defined in `frontend/.env`, templated in `frontend/.env.example`).*
 
-### 3. Run Tests and Production Build
+### 3. Run Automated Tests and Build
 
+#### Backend Inference & Regression Tests
 ```powershell
-cd D:\HAR\frontend
+Set-Location -Path "D:\HAR"
+.\venv\Scripts\Activate.ps1
 
-# Run unit tests
+# Run automated backend test suite (preprocessing, windowing, and models)
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+#### Frontend Unit Tests and Production Build
+```powershell
+Set-Location -Path "D:\HAR\frontend"
+
+# Run Vitest component and API contract tests
 npm test
 
-# Build production distribution
+# Build production bundle
 npm run build
 ```
 
@@ -474,7 +486,11 @@ Follow this 8-step demonstration sequence for an academic presentation:
 
 - **Waist Placement Dependency**: Models were trained on sensors positioned specifically at the waist. Armband or loose handbag carriage introduces orientation shifts that can degrade classification accuracy.
 - **Fixed 50 Hz Sampling Assumption**: The models expect a temporal resolution of 50 Hz. Signals logged at different sampling rates must be resampled.
-- **Sitting vs. Standing Ambiguity**: In both stationary states, dynamic linear acceleration is negligible ($SMV \approx 0.02\text{ g}$) and device orientation is nearly vertical, making them difficult to separate without thigh-angle sensors.
+- **Sitting vs. Standing Ambiguity (Empirical Case Study on `sample_sitting_128.csv`)**:
+  - In both stationary states, dynamic linear acceleration is negligible ($SMV \approx 0.02\text{ g}$) and device orientation relative to gravity is nearly vertical, making them difficult to separate from waist-mounted inertial data alone without knee/thigh flex sensors.
+  - **Sample Provenance**: Window `sample_data/sample_sitting_128.csv` was verified through an exact bit-for-bit array search to match **Sample #31 in the UCI HAR test split (`X_test[31]`)**, recorded from **Subject 2** with true ground-truth activity `sitting` (`y_test[31] == 3`).
+  - **Empirical Model Output**: All three deep architectures predict `standing` on this test window (CNN1D: 92.3% confidence; GRU: 92.6% confidence; LSTM: 90.8% confidence; sitting probability: ~7–9%).
+  - **Empirical Context**: This behavior is **not a software defect or mislabeling**, but a direct manifestation of the underlying confusion distribution in the UCI HAR test benchmark: across the 491 test sitting windows, CNN1D misclassifies 64 windows as standing (and 82 standing as sitting); GRU misclassifies 63; LSTM misclassifies 51. Window #31 is one of these genuine misclassification instances. The ground truth in `sample_sitting_128.csv` is preserved honestly as an authentic academic benchmark case.
 - **Recorded Data Scope**: The system evaluates uploaded/stored CSV recordings; continuous live Bluetooth Low Energy (BLE) streaming is not implemented.
 - **Non-Clinical Scope**: Not validated for medical diagnostic monitoring or emergency fall-detection.
 
