@@ -53,6 +53,7 @@ export const DashboardPage: React.FC = () => {
     loadDashboardData();
   }, []);
 
+  const convlstmModel = models.find((m) => m.id === 'convlstm');
   const cnnModel = models.find((m) => m.id === 'cnn1d');
   const gruModel = models.find((m) => m.id === 'gru');
   const lstmModel = models.find((m) => m.id === 'lstm');
@@ -176,12 +177,21 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* Model Benchmark Performance Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
         <MetricCard
-          title="1D-CNN (Top Performer)"
+          title="DeepConvLSTM (Advanced)"
+          value={convlstmModel ? `${((convlstmModel.test_accuracy || 0) * 100).toFixed(2)}%` : '---'}
+          subtitle={convlstmModel ? `Macro-F1: ${((convlstmModel.macro_f1 || 0) * 100).toFixed(2)}%` : 'Loading...'}
+          badge={{ text: 'Conv+LSTM+Attn', variant: 'success' }}
+          icon={<Zap className="w-4 h-4 text-cyan-400" />}
+          loading={loading}
+        />
+
+        <MetricCard
+          title="1D-CNN (Convolutional)"
           value={cnnModel ? `${((cnnModel.test_accuracy || 0) * 100).toFixed(2)}%` : '---'}
           subtitle={cnnModel ? `Macro-F1: ${((cnnModel.macro_f1 || 0) * 100).toFixed(2)}%` : 'Loading...'}
-          badge={{ text: 'Rank #1', variant: 'success' }}
+          badge={{ text: 'Top Baseline', variant: 'info' }}
           icon={<Zap className="w-4 h-4 text-blue-400" />}
           loading={loading}
         />
@@ -190,7 +200,7 @@ export const DashboardPage: React.FC = () => {
           title="RandomForest (Baseline)"
           value={rfModel ? `${((rfModel.test_accuracy || 0) * 100).toFixed(2)}%` : '---'}
           subtitle={rfModel ? `Macro-F1: ${((rfModel.macro_f1 || 0) * 100).toFixed(2)}%` : 'Loading...'}
-          badge={{ text: '561 Features', variant: 'info' }}
+          badge={{ text: '561 Features', variant: 'default' }}
           icon={<Layers className="w-4 h-4 text-amber-400" />}
           loading={loading}
         />

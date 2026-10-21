@@ -26,6 +26,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from har import (
     ACTIVITIES,
     CNN1DModel,
+    DeepConvLSTMModel,
     GRUModel,
     LSTMModel,
     MODEL_REGISTRY,
@@ -109,7 +110,7 @@ class ModelManager:
         self.out_dir = Path(out_dir)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.models: Dict[str, nn.Module] = {}
-        self.load_status: Dict[str, bool] = {"cnn1d": False, "gru": False, "lstm": False}
+        self.load_status: Dict[str, bool] = {"convlstm": False, "cnn1d": False, "gru": False, "lstm": False}
         self.load_errors: Dict[str, str] = {}
         self.load_all()
 
@@ -121,7 +122,7 @@ class ModelManager:
 
     def load_all(self) -> None:
         """Load all deep learning model checkpoints once at initialization."""
-        for m_name, model_cls in [("cnn1d", CNN1DModel), ("gru", GRUModel), ("lstm", LSTMModel)]:
+        for m_name, model_cls in [("convlstm", DeepConvLSTMModel), ("cnn1d", CNN1DModel), ("gru", GRUModel), ("lstm", LSTMModel)]:
             checkpoint_path = self.out_dir / f"{m_name}_best.pt"
             if not checkpoint_path.exists():
                 self.load_status[m_name] = False
@@ -153,6 +154,7 @@ class ModelManager:
         """Return structural specifications, parameter counts, and disk sizes."""
         specs = []
         descriptions = {
+            "convlstm": ("Deep ConvLSTM + Attention", "3 Conv Blocks + 2-Layer BiLSTM (96 hidden) + Temporal Self-Attention + Physics Postural Tilt Fusion", "Raw 9×128 Inertial Signals"),
             "cnn1d": ("Deep ConvNet", "3 Conv Blocks (64→128→256) + BatchNorm + MaxPool + Global AvgPool → Dense", "Raw 9×128 Inertial Signals"),
             "gru": ("Bidirectional Recurrent", "2-Layer BiGRU (128 hidden) + Temporal AvgPool → Dense", "Raw 9×128 Inertial Signals"),
             "lstm": ("Bidirectional Recurrent", "2-Layer BiLSTM (128 hidden) + Temporal AvgPool → Dense", "Raw 9×128 Inertial Signals"),
@@ -171,7 +173,7 @@ class ModelManager:
         except Exception as e:
             logger.warning("Could not read metrics.json: %s", e)
 
-        for m_key in ("cnn1d", "gru", "lstm", "randomforest"):
+        for m_key in ("convlstm", "cnn1d", "gru", "lstm", "randomforest"):
             m_type, arch_desc, input_desc = descriptions[m_key]
             weights_path = self.out_dir / f"{m_key}_best.pt"
             disk_mb = round(weights_path.stat().st_size / (1024 * 1024), 2) if weights_path.exists() else None
@@ -179,6 +181,8 @@ class ModelManager:
             model_obj = self.models.get(m_key)
             if model_obj is not None:
                 params = sum(p.numel() for p in model_obj.parameters())
+            elif m_key == "convlstm":
+                params = 517735
             elif m_key == "cnn1d":
                 params = 709830
             elif m_key == "gru":
@@ -192,6 +196,7 @@ class ModelManager:
             m_metric = metrics_dict.get(m_key, {})
 
             display_name = {
+                "convlstm": "DeepConvLSTM (Advanced)",
                 "cnn1d": "1D-CNN",
                 "gru": "GRU",
                 "lstm": "LSTM",
@@ -369,7 +374,7 @@ def build_prediction_response(
     n_windows = len(windows)
 
     predictions = predict_windows(models, windows, device=device)
-    available_model_keys = [k for k in ("cnn1d", "gru", "lstm") if k in predictions]
+    available_model_keys = [k for k in ("convlstm", "cnn1d", "gru", "lstm") if k in predictions]
 
     consensus_activities = []
     consensus_labels = []
@@ -383,11 +388,13 @@ def build_prediction_response(
         all_match = (len(set(w_preds)) == 1) if w_preds else False
         agreement_flags.append(all_match)
 
-        # Consensus determination
+        # Consensus determination: priority to DeepConvLSTM or CNN1D if tied, else majority vote
         if all_match:
             chosen_c = w_preds[0]
         else:
-            if "cnn1d" in predictions:
+            if "convlstm" in predictions:
+                chosen_c = predictions["convlstm"]["preds"][w_idx]
+            elif "cnn1d" in predictions:
                 chosen_c = predictions["cnn1d"]["preds"][w_idx]
             else:
                 chosen_c = max(set(w_preds), key=w_preds.count) if w_preds else 0
@@ -490,6 +497,7 @@ def load_metrics_data(out_dir: Path = OUT_DIR) -> dict:
 
     detailed_models = []
     display_names = {
+        "convlstm": "DeepConvLSTM",
         "cnn1d": "1D-CNN",
         "gru": "GRU",
         "lstm": "LSTM",
@@ -538,6 +546,7 @@ def load_confusion_matrices_data(out_dir: Path = OUT_DIR) -> dict:
         raw_metrics = json.load(f)
 
     display_names = {
+        "convlstm": "DeepConvLSTM",
         "cnn1d": "1D-CNN",
         "gru": "GRU",
         "lstm": "LSTM",
@@ -567,3 +576,100 @@ def load_confusion_matrices_data(out_dir: Path = OUT_DIR) -> dict:
         "activities": ACTIVITIES,
         "activity_labels": act_labels,
     }
+
+
+# ── Live Real-Time Stream Buffer ─────────────────────────────────────────────
+
+from collections import deque
+
+
+class RealTimeStreamBuffer:
+    """Manages continuous high-frequency inertial sensor readings for live WebSocket streaming.
+    
+    Accepts 6-channel raw readings (accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z) or
+    9-channel standard readings, performs real-time window buffering, low-pass gravity filtering,
+    instant inference, and biomechanical posture/motion telemetry extraction.
+    """
+
+    def __init__(self, capacity: int = 512, window_size: int = 128, stride: int = 16) -> None:
+        self.capacity = capacity
+        self.window_size = window_size
+        self.stride = stride
+        self.samples_since_last_pred = 0
+        self.total_samples_received = 0
+        
+        # Buffer of 9-channel samples
+        self.raw_accel_history: deque = deque(maxlen=capacity)
+        self.raw_gyro_history: deque = deque(maxlen=capacity)
+        self.buffer_9ch: deque = deque(maxlen=capacity)
+
+    def add_reading(self, reading: dict) -> None:
+        """Add a single reading dict. Supports 6-channel or 9-channel keys."""
+        has_9ch = all(k in reading for k in SIGNAL_NAMES)
+        if has_9ch:
+            sample_9 = [float(reading[k]) for k in SIGNAL_NAMES]
+            self.buffer_9ch.append(sample_9)
+        else:
+            ax = float(reading.get("accel_x", reading.get("ax", 0.0)))
+            ay = float(reading.get("accel_y", reading.get("ay", 0.0)))
+            az = float(reading.get("accel_z", reading.get("az", 0.0)))
+            gx = float(reading.get("gyro_x", reading.get("gx", 0.0)))
+            gy = float(reading.get("gyro_y", reading.get("gy", 0.0)))
+            gz = float(reading.get("gyro_z", reading.get("gz", 0.0)))
+            
+            self.raw_accel_history.append([ax, ay, az])
+            self.raw_gyro_history.append([gx, gy, gz])
+            
+            # Online low-pass filter approximation over recent 25 samples (~0.5s at 50Hz)
+            recent_accel = list(self.raw_accel_history)[-min(25, len(self.raw_accel_history)):]
+            g_vec = np.mean(recent_accel, axis=0) if recent_accel else np.array([0.0, 0.0, 1.0])
+            
+            body_acc = [ax - float(g_vec[0]), ay - float(g_vec[1]), az - float(g_vec[2])]
+            body_gyro = [gx, gy, gz]
+            total_acc = [ax, ay, az]
+            
+            sample_9 = body_acc + body_gyro + total_acc
+            self.buffer_9ch.append(sample_9)
+
+        self.total_samples_received += 1
+        self.samples_since_last_pred += 1
+
+    def should_predict(self) -> bool:
+        """Returns True if enough samples have accumulated for a new window prediction."""
+        return (len(self.buffer_9ch) >= self.window_size) and (self.samples_since_last_pred >= self.stride)
+
+    def extract_latest_window(self) -> np.ndarray:
+        """Return (1, 9, 128) array for model input."""
+        recent = list(self.buffer_9ch)[-self.window_size:]
+        arr = np.array(recent, dtype=np.float32).T  # (9, 128)
+        self.samples_since_last_pred = 0
+        return arr[np.newaxis, ...]  # (1, 9, 128)
+
+    def compute_telemetry(self) -> dict:
+        """Compute real-time biomechanical telemetry from the most recent readings."""
+        if not self.buffer_9ch:
+            return {
+                "magnitude_g": 0.0,
+                "tilt_angle_deg": 0.0,
+                "state": "unknown",
+                "sample_count": 0,
+            }
+        latest = self.buffer_9ch[-1]
+        tot_x, tot_y, tot_z = latest[6], latest[7], latest[8]
+        norm_g = np.sqrt(tot_x**2 + tot_y**2 + tot_z**2)
+        
+        tilt_deg = float(np.arccos(np.clip(tot_y / max(norm_g, 1e-6), -1.0, 1.0)) * (180.0 / np.pi))
+        
+        recent = list(self.buffer_9ch)[-min(32, len(self.buffer_9ch)):]
+        body_acc = np.array([s[0:3] for s in recent])
+        motion_var = float(np.mean(np.var(body_acc, axis=0)))
+        state = "dynamic" if motion_var > 0.015 else "static"
+        
+        return {
+            "magnitude_g": round(float(norm_g), 3),
+            "tilt_angle_deg": round(tilt_deg, 1),
+            "state": state,
+            "motion_variance": round(motion_var, 4),
+            "sample_count": self.total_samples_received,
+        }
+

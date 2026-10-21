@@ -6,6 +6,7 @@ import { Sidebar } from './components/Sidebar';
 import { DashboardPage } from './pages/DashboardPage';
 import { AnalyzerPage } from './pages/AnalyzerPage';
 import { ResultsPage } from './pages/ResultsPage';
+import { LiveStreamPage } from './pages/LiveStreamPage';
 
 export function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -31,12 +32,14 @@ export function App() {
 
             <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8">
               <Routes>
-                {/* 3 Main Pages for Mini-Project */}
+                {/* Main Navigation Pages */}
                 <Route path="/" element={<DashboardPage />} />
+                <Route path="/stream" element={<LiveStreamPage />} />
                 <Route path="/analyzer" element={<AnalyzerPage />} />
                 <Route path="/results" element={<ResultsPage />} />
 
-                {/* Legacy route redirects to consolidated pages */}
+                {/* Legacy route redirects */}
+                <Route path="/live" element={<Navigate to="/stream" replace />} />
                 <Route path="/models" element={<Navigate to="/" replace />} />
                 <Route path="/evaluation" element={<Navigate to="/results" replace />} />
                 <Route path="/about" element={<Navigate to="/" replace />} />

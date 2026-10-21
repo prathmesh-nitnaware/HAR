@@ -234,10 +234,122 @@ class CNN1DModel(nn.Module):
         return self.fc(out)
 
 
+class DeepConvLSTMModel(nn.Module):
+    """Deep ConvLSTM combining multi-scale 1D convolutions, bidirectional recurrence,
+    temporal self-attention, and physics-informed postural gravity cues."""
+
+    def __init__(self, n_channels: int = N_CHANNELS, n_classes: int = N_CLASSES,
+                 conv_filters: int = 128, lstm_hidden: int = 96, dropout: float = 0.3) -> None:
+        super().__init__()
+        
+        # 1. 1D Convolutional feature extractor (extracts localized frequency & angular patterns)
+        self.conv_blocks = nn.Sequential(
+            nn.Conv1d(n_channels, 64, kernel_size=5, padding=2),
+            nn.BatchNorm1d(64),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout * 0.5),
+
+            nn.Conv1d(64, conv_filters, kernel_size=5, padding=2),
+            nn.BatchNorm1d(conv_filters),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout * 0.5),
+
+            nn.Conv1d(conv_filters, conv_filters, kernel_size=3, padding=1),
+            nn.BatchNorm1d(conv_filters),
+            nn.ReLU(inplace=True),
+            nn.MaxPool1d(2),  # 128 -> 64 timesteps
+        )
+        
+        # 2. Bidirectional LSTM for recurrent temporal sequence propagation
+        self.lstm = nn.LSTM(
+            input_size=conv_filters,
+            hidden_size=lstm_hidden,
+            num_layers=2,
+            batch_first=True,
+            bidirectional=True,
+            dropout=dropout,
+        )
+        lstm_out_dim = lstm_hidden * 2  # Bidirectional -> 192
+        
+        # 3. Temporal Self-Attention over timesteps
+        self.attention = nn.Sequential(
+            nn.Linear(lstm_out_dim, 64),
+            nn.Tanh(),
+            nn.Linear(64, 1),
+        )
+        
+        # 4. Explicit Physics-Informed Postural Feature Extractor (Gravity Tilt, SMA, Energy)
+        # Inputs: [mean_gx, mean_gy, mean_gz, tilt_angle, body_sma, gyro_energy] = 6 features
+        self.physics_fc = nn.Sequential(
+            nn.Linear(6, 32),
+            nn.BatchNorm1d(32),
+            nn.ReLU(inplace=True),
+        )
+        
+        # 5. Classifier fusion
+        total_features = lstm_out_dim + 32  # 192 + 32 = 224
+        self.classifier = nn.Sequential(
+            nn.Linear(total_features, 64),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
+            nn.Linear(64, n_classes),
+        )
+
+    def extract_physics_features(self, x: torch.Tensor) -> torch.Tensor:
+        """Extract explicit biomechanical and gravitational orientation cues from raw signals.
+        x shape: (B, 9, T)
+        Channels 0..2: body_acc (x, y, z)
+        Channels 3..5: body_gyro (x, y, z)
+        Channels 6..8: total_acc (x, y, z)
+        """
+        body_acc = x[:, 0:3, :]   # (B, 3, T)
+        body_gyro = x[:, 3:6, :]  # (B, 3, T)
+        total_acc = x[:, 6:9, :]  # (B, 3, T)
+
+        # Gravitational alignment (mean total acceleration along each axis)
+        mean_g = total_acc.mean(dim=2)  # (B, 3)
+        norm_g = torch.norm(mean_g, p=2, dim=1, keepdim=True).clamp(min=1e-6)
+        
+        # Cosine tilt angle relative to vertical y-axis (phone screen vertical)
+        tilt_cos = (mean_g[:, 1:2] / norm_g).clamp(-1.0, 1.0)
+        
+        # Signal magnitude area (SMA) of dynamic body motion
+        body_sma = torch.abs(body_acc).sum(dim=1).mean(dim=1, keepdim=True)  # (B, 1)
+        
+        # Gyroscope energy (rotation intensity)
+        gyro_energy = (body_gyro ** 2).sum(dim=1).mean(dim=1, keepdim=True)  # (B, 1)
+        
+        physics_vec = torch.cat([mean_g, tilt_cos, body_sma, gyro_energy], dim=1)  # (B, 6)
+        return physics_vec
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Physics branch
+        physics_feat = self.extract_physics_features(x)  # (B, 6)
+        physics_emb = self.physics_fc(physics_feat)      # (B, 32)
+        
+        # Conv branch
+        c_out = self.conv_blocks(x)                      # (B, 128, 64)
+        c_out = c_out.permute(0, 2, 1)                   # (B, 64, 128)
+        
+        # Recurrent branch
+        lstm_out, _ = self.lstm(c_out)                   # (B, 64, 192)
+        
+        # Attention pooling
+        att_scores = self.attention(lstm_out)            # (B, 64, 1)
+        att_weights = torch.softmax(att_scores, dim=1)   # (B, 64, 1)
+        context = (lstm_out * att_weights).sum(dim=1)    # (B, 192)
+        
+        # Fusion
+        fused = torch.cat([context, physics_emb], dim=1) # (B, 224)
+        logits = self.classifier(fused)                  # (B, 6)
+        return logits
+
+
 MODEL_REGISTRY: Dict[str, type] = {
-    "lstm": LSTMModel,
-    "gru": GRUModel,
+    "convlstm": DeepConvLSTMModel,
     "cnn1d": CNN1DModel,
+    "gru": GRUModel,
+    "lstm": LSTMModel,
 }
 
 

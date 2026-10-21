@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
+  Radio,
   Cpu,
   FileSpreadsheet,
   ChevronLeft,
@@ -24,6 +25,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
       label: 'Dashboard',
       icon: LayoutDashboard,
       description: 'System health & model benchmarks',
+    },
+    {
+      to: '/stream',
+      label: 'Live Stream Studio',
+      icon: Radio,
+      description: '50 Hz real-time mobile & simulator',
+      badge: 'LIVE',
     },
     {
       to: '/analyzer',

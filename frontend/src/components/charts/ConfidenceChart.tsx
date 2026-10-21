@@ -23,6 +23,7 @@ export const ConfidenceChart: React.FC<ConfidenceChartProps> = ({ windows }) => 
       windowId: `#${w.window_id}`,
       time: `${w.start_time_sec.toFixed(1)}s`,
       consensus: w.consensus_label,
+      ConvLSTM: w.models.convlstm ? Number((w.models.convlstm.confidence * 100).toFixed(1)) : null,
       CNN1D: w.models.cnn1d ? Number((w.models.cnn1d.confidence * 100).toFixed(1)) : null,
       GRU: w.models.gru ? Number((w.models.gru.confidence * 100).toFixed(1)) : null,
       LSTM: w.models.lstm ? Number((w.models.lstm.confidence * 100).toFixed(1)) : null,
@@ -68,6 +69,14 @@ export const ConfidenceChart: React.FC<ConfidenceChartProps> = ({ windows }) => 
               formatter={(val: any) => [`${val}%`, '']}
             />
             <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+            <Line
+              type="monotone"
+              dataKey="ConvLSTM"
+              name="DeepConvLSTM Confidence"
+              stroke="#06b6d4"
+              strokeWidth={2}
+              dot={{ r: 3 }}
+            />
             <Line
               type="monotone"
               dataKey="CNN1D"

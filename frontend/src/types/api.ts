@@ -12,7 +12,7 @@ export interface HealthResponse {
 }
 
 export interface ModelMetadata {
-  id: 'cnn1d' | 'gru' | 'lstm' | 'randomforest' | string;
+  id: 'convlstm' | 'cnn1d' | 'gru' | 'lstm' | 'randomforest' | string;
   name: string;
   type: string;
   architecture: string;
@@ -22,6 +22,27 @@ export interface ModelMetadata {
   status: 'ready' | 'unavailable' | string;
   test_accuracy: number | null;
   macro_f1: number | null;
+}
+
+export interface LiveTelemetry {
+  magnitude_g: number;
+  tilt_angle_deg: number;
+  state: 'dynamic' | 'static' | string;
+  motion_variance?: number;
+  sample_count: number;
+}
+
+export interface LivePredictionMessage {
+  type: 'prediction';
+  timestamp: number;
+  window_count: number;
+  predicted_activity: string;
+  predicted_label: string;
+  confidence: number;
+  probabilities: Record<string, number>;
+  model: string;
+  latency_ms: number;
+  telemetry: LiveTelemetry;
 }
 
 export interface SampleSummary {

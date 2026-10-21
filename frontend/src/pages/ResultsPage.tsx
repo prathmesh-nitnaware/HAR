@@ -208,6 +208,7 @@ export const ResultsPage: React.FC = () => {
                     <th className="py-2.5 px-3">Win ID</th>
                     <th className="py-2.5 px-3">Interval</th>
                     <th className="py-2.5 px-3">Consensus Activity</th>
+                    <th className="py-2.5 px-3">DeepConvLSTM</th>
                     <th className="py-2.5 px-3">1D-CNN</th>
                     <th className="py-2.5 px-3">GRU</th>
                     <th className="py-2.5 px-3">LSTM</th>
@@ -218,6 +219,7 @@ export const ResultsPage: React.FC = () => {
                   {currentAnalysis.windows
                     .slice((currentPage - 1) * pageSize, currentPage * pageSize)
                     .map((win) => {
+                      const convlstm = win.models.convlstm;
                       const cnn = win.models.cnn1d;
                       const gru = win.models.gru;
                       const lstm = win.models.lstm;
@@ -233,6 +235,22 @@ export const ResultsPage: React.FC = () => {
                               activity={win.consensus_activity}
                               label={win.consensus_label}
                             />
+                          </td>
+
+                          {/* DeepConvLSTM */}
+                          <td className="py-3 px-3 font-sans">
+                            {convlstm ? (
+                              <div>
+                                <span className="font-semibold text-cyan-300">
+                                  {convlstm.predicted_label}
+                                </span>
+                                <span className="block text-[10px] text-slate-500 font-mono">
+                                  {(convlstm.confidence * 100).toFixed(1)}% conf
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-500">---</span>
+                            )}
                           </td>
 
                           {/* CNN1D */}

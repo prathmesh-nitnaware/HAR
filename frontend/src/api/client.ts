@@ -136,4 +136,22 @@ export const apiService = {
       throw parseApiError(err);
     }
   },
+
+  async getSimulationSamples(): Promise<Record<string, { name: string; activity: string; readings: any[] }>> {
+    try {
+      const response = await apiClient.get<{ samples: Record<string, { name: string; activity: string; readings: any[] }> }>('/api/stream/simulation-samples');
+      return response.data.samples;
+    } catch (err) {
+      throw parseApiError(err);
+    }
+  },
+
+  getWebSocketUrl(): string {
+    const httpUrl = BASE_URL.replace(/\/+$/, '');
+    if (httpUrl.startsWith('https://')) {
+      return httpUrl.replace('https://', 'wss://') + '/ws/stream';
+    }
+    return httpUrl.replace('http://', 'ws://') + '/ws/stream';
+  },
 };
+

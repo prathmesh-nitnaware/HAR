@@ -326,6 +326,7 @@ All evaluation metrics are verified directly against [`out/metrics.json`](file:/
 
 | Model | Input Representation | Test Accuracy | Macro-F1 | Macro-Precision | Macro-Recall | Trainable Parameters |
 |---|---|---|---|---|---|---|
+| **DeepConvLSTM** | Raw $(9, 128)$ + Physics Cues | **93.79%** (0.9379) | **93.98%** (0.9398) | **94.22%** | **93.85%** | **517,735** |
 | **1D-CNN** | Raw $(9, 128)$ Inertial | **94.20%** (0.9420) | **94.33%** (0.9433) | **94.75%** | **94.06%** | **709,830** |
 | **RandomForest** | 561 Engineered Features | 92.87% (0.9287) | 92.70% (0.9270) | 92.93% | 92.56% | 200 Trees (Baseline) |
 | **LSTM** | Raw $(9, 128)$ Inertial | 91.72% (0.9172) | 91.81% (0.9181) | 92.14% | 91.73% | 539,142 |
@@ -355,12 +356,13 @@ Actual Lay         0     0     0    0      0  537     537  (100.0% accuracy)
 
 ## M. Application Features
 
-### 1. Simplified Three-Page React Frontend
-- **Page 1: Dashboard (`/`)**: Displays real-time backend readiness, compute device, model benchmark cards, Recharts comparative bar chart, and supported activity descriptions.
-- **Page 2: Activity Analyzer (`/analyzer`)**: Main interactive demo. Supports selecting benchmark samples or uploading custom sensor CSVs with stride selection (64 or 128 samples).
-- **Page 3: Results & Evaluation (`/results`)**: Combines prediction results (dominant activity, agreement rate, timeline, window-level predictions table, CSV export) with benchmark model evaluation and an interactive confusion matrix heatmap.
+### 1. Modern React Frontend Application
+- **Page 1: Dashboard (`/`)**: Displays real-time backend readiness, compute device, 5-model benchmark cards, Recharts comparative bar chart, and supported activity descriptions.
+- **Page 2: Live Stream Studio (`/stream`)**: Real-time 50 Hz streaming studio. Supports continuous smartphone sensor capture via HTML5 `DeviceMotionEvent` (for live walking, sitting, stairs testing) or continuous dataset simulation, featuring an interactive HTML5 Canvas oscilloscope, live classification HUD, and biomechanical telemetry (tilt angle inclinometer, g-force magnitude).
+- **Page 3: Activity Analyzer (`/analyzer`)**: Main interactive demo. Supports selecting benchmark samples or uploading custom sensor CSVs with stride selection (64 or 128 samples).
+- **Page 4: Results & Evaluation (`/results`)**: Combines multi-window prediction results (dominant activity, agreement rate, timeline, window-level predictions table, CSV export) with benchmark model evaluation and interactive confusion matrix heatmaps across all architectures.
 
-### 2. FastAPI REST Endpoints
+### 2. FastAPI REST & WebSocket Endpoints
 
 | Method | Endpoint | Description |
 |---|---|---|
@@ -372,6 +374,8 @@ Actual Lay         0     0     0    0      0  537     537  (100.0% accuracy)
 | `POST` | `/api/predict/csv` | Validates, filters, segments, and predicts activities on an uploaded CSV file |
 | `GET` | `/api/metrics` | Retrieves macro evaluation metrics and training loss histories |
 | `GET` | `/api/confusion-matrices` | Retrieves raw count and normalized confusion matrices for all evaluated models |
+| `GET` | `/api/stream/simulation-samples` | Continuous multi-activity sensor sequences for browser-side streaming simulation |
+| `WS` | `/ws/stream` | Full-duplex WebSocket stream for 50 Hz phone IMU packets, rolling window inference, and live telemetry |
 
 ### 3. Streamlit Interface (`app.py`)
 The existing Streamlit application remains operational as an alternative interactive dashboard, runnable independently via `streamlit run app.py`.

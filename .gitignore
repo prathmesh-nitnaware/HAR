@@ -18,6 +18,7 @@ data/
 # Logs and transient evaluation artifacts
 *.log
 out_verify/
+scratch/
 .DS_Store
 
 # Frontend build artifacts (for React phase)

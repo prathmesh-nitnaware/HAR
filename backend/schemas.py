@@ -121,3 +121,24 @@ class ErrorResponse(BaseModel):
     detail: str
     error_type: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
+
+
+class LiveTelemetry(BaseModel):
+    magnitude_g: float
+    tilt_angle_deg: float
+    state: str
+    motion_variance: Optional[float] = None
+    sample_count: int
+
+
+class LivePredictionMessage(BaseModel):
+    type: str = "prediction"
+    timestamp: float
+    predicted_activity: str
+    predicted_label: str
+    confidence: float
+    probabilities: Dict[str, float]
+    model: str
+    telemetry: LiveTelemetry
+    window_count: int
+

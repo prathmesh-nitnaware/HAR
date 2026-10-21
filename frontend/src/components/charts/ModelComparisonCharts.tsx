@@ -17,6 +17,7 @@ interface ModelComparisonChartsProps {
 }
 
 const MODEL_COLORS: Record<string, string> = {
+  convlstm: '#06b6d4', // Cyan (Advanced)
   cnn1d: '#3b82f6', // Electric blue
   gru: '#10b981',   // Emerald
   lstm: '#8b5cf6',  // Purple

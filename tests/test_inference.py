@@ -13,6 +13,7 @@ if PROJECT_ROOT not in sys.path:
 
 from backend.inference import (
     ModelManager,
+    RealTimeStreamBuffer,
     validate_and_preprocess_sensor_csv,
     slice_sensor_windows,
     build_prediction_response,
@@ -27,11 +28,40 @@ class TestBackendInference(unittest.TestCase):
         cls.mgr = ModelManager.get_instance()
 
     def test_model_loading(self):
-        """Verify that all three deep learning models are loaded and healthy."""
+        """Verify that all four deep learning models (ConvLSTM, CNN1D, GRU, LSTM) are loaded and healthy."""
+        self.assertTrue(self.mgr.load_status.get("convlstm", False), "ConvLSTM model failed to load")
         self.assertTrue(self.mgr.load_status.get("cnn1d", False), "CNN1D model failed to load")
         self.assertTrue(self.mgr.load_status.get("gru", False), "GRU model failed to load")
         self.assertTrue(self.mgr.load_status.get("lstm", False), "LSTM model failed to load")
-        self.assertEqual(len(self.mgr.models), 3)
+        self.assertEqual(len(self.mgr.models), 4)
+
+    def test_realtime_stream_buffer(self):
+        """Verify RealTimeStreamBuffer ingests readings, calculates telemetry, and extracts 128-window array."""
+        buf = RealTimeStreamBuffer(capacity=256, window_size=128, stride=16)
+        self.assertFalse(buf.should_predict())
+
+        # Feed 128 sample readings
+        for i in range(128):
+            reading = {
+                "accel_x": 0.05 * np.sin(i * 0.1),
+                "accel_y": 0.98 + 0.02 * np.cos(i * 0.1),
+                "accel_z": 0.1,
+                "gyro_x": 0.01,
+                "gyro_y": 0.02,
+                "gyro_z": 0.01,
+            }
+            buf.add_reading(reading)
+
+        self.assertTrue(buf.should_predict())
+        window_arr = buf.extract_latest_window()
+        self.assertEqual(window_arr.shape, (1, 9, 128))
+        self.assertEqual(window_arr.dtype, np.float32)
+
+        telemetry = buf.compute_telemetry()
+        self.assertIn("magnitude_g", telemetry)
+        self.assertIn("tilt_angle_deg", telemetry)
+        self.assertIn("state", telemetry)
+        self.assertGreater(telemetry["magnitude_g"], 0.8)
 
     def test_window_slicing_strides(self):
         """Verify window slicing for 384-row input: stride 64 yields 5 windows, stride 128 yields 3 windows."""

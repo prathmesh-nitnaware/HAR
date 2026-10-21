@@ -13,9 +13,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 
+import time
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, status
+import torch
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -23,7 +25,9 @@ from backend.inference import (
     ACTIVITIES,
     ACTIVITY_LABELS,
     ModelManager,
+    RealTimeStreamBuffer,
     SAMPLE_REGISTRY,
+    SIGNAL_NAMES,
     build_prediction_response,
     load_confusion_matrices_data,
     load_metrics_data,
@@ -339,3 +343,178 @@ def get_confusion_matrices():
     """Retrieve confusion matrices (raw counts and normalized percentages) across evaluated models."""
     data = load_confusion_matrices_data()
     return ConfusionMatrixResponse(**data)
+
+
+# ── Live Real-Time Streaming & WebSocket ──────────────────────────────────────
+
+@app.get(
+    "/api/stream/simulation-samples",
+    summary="Get Continuous Sensor Streams for Simulation",
+    tags=["Streaming"],
+)
+def get_simulation_samples():
+    """Returns sample continuous sensor streams across classes for browser live stream simulation."""
+    results = {}
+    for sample_id, meta in SAMPLE_REGISTRY.items():
+        try:
+            df, _ = load_sample_dataframe(meta)
+            readings = []
+            for _, row in df.iterrows():
+                r_dict = {}
+                for col in df.columns:
+                    if col in SIGNAL_NAMES:
+                        r_dict[col] = float(row[col])
+                r_dict["accel_x"] = float(row.get("total_acc_x", row.get("body_acc_x", 0.0)))
+                r_dict["accel_y"] = float(row.get("total_acc_y", row.get("body_acc_y", 0.0)))
+                r_dict["accel_z"] = float(row.get("total_acc_z", row.get("body_acc_z", 0.0)))
+                r_dict["gyro_x"] = float(row.get("body_gyro_x", 0.0))
+                r_dict["gyro_y"] = float(row.get("body_gyro_y", 0.0))
+                r_dict["gyro_z"] = float(row.get("body_gyro_z", 0.0))
+                readings.append(r_dict)
+            results[meta.get("ground_truth", sample_id)] = {
+                "name": meta["name"],
+                "activity": meta.get("ground_truth", "walking"),
+                "readings": readings,
+            }
+        except Exception as e:
+            logger.warning("Could not load simulation sample for %s: %s", sample_id, e)
+    return {"samples": results}
+
+
+@app.websocket("/ws/stream")
+async def websocket_sensor_stream(websocket: WebSocket):
+    """Real-time bi-directional WebSocket stream for live smartphone or simulated sensor data.
+    
+    Accepts incoming 50 Hz IMU packets (6-channel raw or 9-channel), buffers rolling 128-sample
+    windows, extracts real-time biomechanical telemetry, and pushes continuous model classifications.
+    """
+    await websocket.accept()
+    buffer = RealTimeStreamBuffer(capacity=512, window_size=128, stride=16)
+    mgr = ModelManager.get_instance()
+    
+    selected_model_name = "convlstm" if "convlstm" in mgr.get_loaded_models() else "cnn1d"
+    window_count = 0
+
+    try:
+        await websocket.send_json({
+            "type": "connected",
+            "message": "Connected to MotionSense AI Live Sensor Streaming Service",
+            "available_models": list(mgr.get_loaded_models().keys()),
+            "active_model": selected_model_name,
+        })
+
+        while True:
+            msg = await websocket.receive_json()
+            action = msg.get("action", "")
+
+            if action == "ping":
+                await websocket.send_json({"type": "pong", "timestamp": time.time()})
+
+            elif action == "configure":
+                req_model = str(msg.get("model", "")).lower()
+                if req_model in mgr.get_loaded_models():
+                    selected_model_name = req_model
+                req_stride = int(msg.get("stride", 16))
+                if req_stride in (8, 16, 32, 64):
+                    buffer.stride = req_stride
+                await websocket.send_json({
+                    "type": "configured",
+                    "active_model": selected_model_name,
+                    "stride": buffer.stride,
+                })
+
+            elif action == "push":
+                reading = msg.get("data", {})
+                buffer.add_reading(reading)
+                
+                if buffer.should_predict():
+                    window_count += 1
+                    window_arr = buffer.extract_latest_window()
+                    model = mgr.get_model(selected_model_name)
+                    
+                    if model is not None:
+                        with torch.no_grad():
+                            t_in = torch.from_numpy(window_arr).to(mgr.device)
+                            t0 = time.time()
+                            logits = model(t_in)
+                            latency_ms = round((time.time() - t0) * 1000.0, 2)
+                            probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
+                            pred_idx = int(np.argmax(probs))
+                            conf = float(probs[pred_idx])
+                            pred_key = ACTIVITIES[pred_idx]
+                            
+                            pred_payload = {
+                                "type": "prediction",
+                                "timestamp": time.time(),
+                                "window_count": window_count,
+                                "predicted_activity": pred_key,
+                                "predicted_label": ACTIVITY_LABELS.get(pred_key, pred_key),
+                                "confidence": round(conf, 4),
+                                "probabilities": {
+                                    ACTIVITIES[i]: round(float(probs[i]), 4) for i in range(len(ACTIVITIES))
+                                },
+                                "model": selected_model_name,
+                                "latency_ms": latency_ms,
+                                "telemetry": buffer.compute_telemetry(),
+                            }
+                            await websocket.send_json(pred_payload)
+                    else:
+                        await websocket.send_json({
+                            "type": "telemetry",
+                            "telemetry": buffer.compute_telemetry(),
+                        })
+                else:
+                    if buffer.total_samples_received % 5 == 0:
+                        await websocket.send_json({
+                            "type": "telemetry",
+                            "telemetry": buffer.compute_telemetry(),
+                        })
+
+            elif action == "push_batch":
+                batch = msg.get("batch", [])
+                for reading in batch:
+                    buffer.add_reading(reading)
+                    if buffer.should_predict():
+                        window_count += 1
+                        window_arr = buffer.extract_latest_window()
+                        model = mgr.get_model(selected_model_name)
+                        if model is not None:
+                            with torch.no_grad():
+                                t_in = torch.from_numpy(window_arr).to(mgr.device)
+                                t0 = time.time()
+                                logits = model(t_in)
+                                latency_ms = round((time.time() - t0) * 1000.0, 2)
+                                probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
+                                pred_idx = int(np.argmax(probs))
+                                conf = float(probs[pred_idx])
+                                pred_key = ACTIVITIES[pred_idx]
+                                
+                                await websocket.send_json({
+                                    "type": "prediction",
+                                    "timestamp": time.time(),
+                                    "window_count": window_count,
+                                    "predicted_activity": pred_key,
+                                    "predicted_label": ACTIVITY_LABELS.get(pred_key, pred_key),
+                                    "confidence": round(conf, 4),
+                                    "probabilities": {
+                                        ACTIVITIES[i]: round(float(probs[i]), 4) for i in range(len(ACTIVITIES))
+                                    },
+                                    "model": selected_model_name,
+                                    "latency_ms": latency_ms,
+                                    "telemetry": buffer.compute_telemetry(),
+                                })
+                await websocket.send_json({
+                    "type": "telemetry",
+                    "telemetry": buffer.compute_telemetry(),
+                })
+
+            elif action == "reset":
+                buffer = RealTimeStreamBuffer(capacity=512, window_size=128, stride=buffer.stride)
+                window_count = 0
+                await websocket.send_json({"type": "reset_ack", "message": "Buffer reset successfully."})
+
+    except WebSocketDisconnect:
+        logger.info("Live WebSocket client disconnected.")
+    except Exception as exc:
+        logger.error("Error in sensor stream WebSocket: %s", exc)
+
