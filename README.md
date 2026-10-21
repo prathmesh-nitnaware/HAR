@@ -500,7 +500,7 @@ Follow this 8-step demonstration sequence for an academic presentation:
 
 ---
 
-## P. Edge & Mobile Optimization (ONNX & INT8 Quantization)
+## Q. Edge & Mobile Optimization (ONNX & INT8 Quantization)
 
 All trained deep learning architectures are exported to standard ONNX computational graphs and dynamically quantized to 8-bit integer (INT8) precision for resource-constrained edge and mobile runtimes:
 
@@ -518,15 +518,34 @@ python scripts/optimize_and_benchmark.py
 
 ---
 
-## Q. Future Improvements
+## R. Real-Time Fall & Shock Emergency Engine
 
-1. **Domain Adaptation**: Add lightweight fine-tuning to adapt to varied smartphone placements (e.g., front pocket, armband).
-2. **Fall & Impact Detection**: Add high-g impact triggering (>3.0g) followed by motionless posture alerting for geriatric safety.
-3. **Multi-Dataset Transfer Learning**: Pretrain on WISDM and PAMAP2 multi-sensor datasets.
+In addition to steady-state activity classification, MotionSense AI incorporates a high-frequency **Kinetic Shock & Fall Detection Supervisor** operating on the continuous 50 Hz inertial sensor stream:
+
+### 1. Three-Stage Biomechanical Fall Signature
+1. **Free-Fall Inception**: Detects sudden reduction in resultant gravitational acceleration ($R(t) = \|\mathbf{a}(t)\| < 0.55\text{g}$) for $\ge 40\text{ ms}$.
+2. **Ground Impact Shock**: Detects violent kinetic deceleration ($R(t) \ge 2.8\text{g}$ and jerk rate $J(t) = \frac{\|\Delta \mathbf{a}\|}{\Delta t} \ge 12\text{ g/s}$).
+3. **Post-Impact Immobility & Posture**: Evaluates 1.5-second motion variance ($\sigma^2 < 0.025$) and body tilt angle ($\theta_{\text{tilt}} > 60^\circ$ or posture $\in \{\text{Laying}, \text{Sitting}\}$). If immobility persists without voluntary recovery, a confirmed **Emergency Fall Event** is dispatched.
+
+### 2. WebSocket & UI Integration
+- **Full-Duplex Alerting**: High-priority `{"type": "fall_alert"}` frames emitted over `/ws/stream` with peak impact force, jerk rate, and post-fall posture.
+- **Interactive Studio (`/stream`)**:
+  - **Emergency Banner Modal**: Flashing warning banner with a 15-second SOS countdown and "I'm OK" manual dismissal.
+  - **Synthesized Audio Alarm**: Dual-tone emergency siren generated entirely offline via HTML5 `AudioContext` with mute/unmute toggle.
+  - **One-Click Fall Simulator**: Desktop stream button to inject verified multi-stage fall waveforms directly into the live motion oscilloscope.
+  - **Incident History Log**: Session-wide ledger documenting peak shock values and timestamps.
 
 ---
 
-## R. Academic References
+## S. Future Improvements
+
+1. **In-Browser WASM Inference**: Direct browser execution of quantized ONNX models via `onnxruntime-web` for zero-network edge latency.
+2. **Domain Adaptation**: Lightweight calibration layer to adapt to non-waist smartphone carriage (handheld, front/back pockets).
+3. **Multi-Dataset Transfer Learning**: Pretrain and evaluate on WISDM and PAMAP2 multi-sensor datasets.
+
+---
+
+## T. Academic References
 
 1. **UCI HAR Benchmark Dataset**:
    > Davide Anguita, Alessandro Ghio, Luca Oneto, Xavier Parra, and Jorge L. Reyes-Ortiz. (2013).  
@@ -539,3 +558,7 @@ python scripts/optimize_and_benchmark.py
 3. **Recurrent Architectures in Activity Recognition**:
    > Ordóñez, F. J., & Roggen, D. (2016).  
    > *Deep convolutional and LSTM recurrent neural networks for multimodal wearable activity recognition.* Sensors, 16(1), 115.
+4. **Wearable Inertial Fall Detection**:
+   > Igual, R., Medrano, C., & Plaza, I. (2013).  
+   > *Challenges, issues and trends in fall detection systems using wearable sensors: A survey.* IEEE Access, 1, 315-326.
+

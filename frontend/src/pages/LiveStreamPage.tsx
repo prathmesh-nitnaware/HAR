@@ -19,9 +19,16 @@ import {
   User,
   Moon,
   RotateCcw,
+  AlertTriangle,
+  Volume2,
+  VolumeX,
+  ShieldAlert,
+  BellRing,
+  HeartPulse,
+  History,
 } from 'lucide-react';
 import { apiService } from '../api/client';
-import type { LivePredictionMessage, LiveTelemetry } from '../types/api';
+import type { LivePredictionMessage, LiveTelemetry, FallAlertEvent } from '../types/api';
 
 // Activity metadata and icons
 const ACTIVITY_CONFIG: Record<
@@ -70,7 +77,15 @@ const ACTIVITY_CONFIG: Record<
     bg: 'bg-indigo-500/10',
     border: 'border-indigo-500/30',
   },
+  fall: {
+    label: 'Fall / Impact Shock',
+    icon: AlertTriangle,
+    color: 'text-rose-400',
+    bg: 'bg-rose-500/20',
+    border: 'border-rose-500/50',
+  },
 };
+
 
 const DEFAULT_ACTIVITIES = [
   'walking',
@@ -121,12 +136,80 @@ export const LiveStreamPage: React.FC = () => {
   });
   const [windowCount, setWindowCount] = useState<number>(0);
 
+  // Fall Alert & Emergency state
+  const [activeFallAlert, setActiveFallAlert] = useState<FallAlertEvent | null>(null);
+  const [fallCountdown, setFallCountdown] = useState<number>(15);
+  const [fallHistory, setFallHistory] = useState<Array<FallAlertEvent & { id: string }>>([]);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const countdownTimerRef = useRef<number | null>(null);
+
   // WebSocket ref
   const wsRef = useRef<WebSocket | null>(null);
 
   // Oscilloscope Canvas ref & rolling waveform buffer
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const waveformBufferRef = useRef<Array<{ ax: number; ay: number; az: number; gx: number; gy: number; gz: number }>>([]);
+
+  // Web Audio emergency siren generator
+  const playEmergencySiren = useCallback(() => {
+    if (!soundEnabled) return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      const now = ctx.currentTime;
+      osc.frequency.setValueAtTime(880, now);
+      osc.frequency.setValueAtTime(620, now + 0.15);
+      osc.frequency.setValueAtTime(880, now + 0.3);
+      osc.frequency.setValueAtTime(620, now + 0.45);
+      gain.gain.setValueAtTime(0.25, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.65);
+    } catch {
+      // Audio autoplay policy
+    }
+  }, [soundEnabled]);
+
+  const triggerFallAlert = useCallback(
+    (alert: FallAlertEvent) => {
+      setActiveFallAlert(alert);
+      setFallCountdown(15);
+      setFallHistory((prev) => [
+        { ...alert, id: `${Date.now()}-${Math.random().toString(36).substr(2, 4)}` },
+        ...prev.slice(0, 9),
+      ]);
+      playEmergencySiren();
+
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = window.setInterval(() => {
+        setFallCountdown((c) => {
+          if (c <= 1) {
+            if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+            return 0;
+          }
+          return c - 1;
+        });
+      }, 1000);
+    },
+    [playEmergencySiren]
+  );
+
+  const dismissFallAlert = useCallback(() => {
+    setActiveFallAlert(null);
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: 'clear_fall_alert' }));
+    }
+  }, []);
 
   // Connect to WebSocket
   const connectWebSocket = useCallback(() => {
@@ -153,6 +236,11 @@ export const LiveStreamPage: React.FC = () => {
             setWindowCount(data.window_count || ((prev) => prev + 1));
           } else if (data.type === 'telemetry') {
             if (data.telemetry) setLatestTelemetry(data.telemetry);
+          } else if (data.type === 'fall_alert') {
+            triggerFallAlert(data);
+          } else if (data.type === 'fall_alert_cleared') {
+            setActiveFallAlert(null);
+            if (data.telemetry) setLatestTelemetry(data.telemetry);
           }
         } catch {
           // ignore parsing error
@@ -173,7 +261,7 @@ export const LiveStreamPage: React.FC = () => {
       setWsError(err.message || 'Failed to initialize WebSocket');
       setIsConnected(false);
     }
-  }, [activeModel]);
+  }, [activeModel, triggerFallAlert]);
 
   // Initialize on mount
   useEffect(() => {
@@ -197,8 +285,10 @@ export const LiveStreamPage: React.FC = () => {
     return () => {
       if (wsRef.current) wsRef.current.close();
       if (simIntervalRef.current) clearInterval(simIntervalRef.current);
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
     };
   }, [connectWebSocket]);
+
 
   // Handle model switch
   const handleModelChange = (newModel: string) => {
@@ -380,6 +470,38 @@ export const LiveStreamPage: React.FC = () => {
           ax = 0.98 + (Math.random() - 0.5) * 0.02;
           ay = (Math.random() - 0.5) * 0.03;
           az = (Math.random() - 0.5) * 0.03;
+        } else if (simActivity === 'fall') {
+          const phase = simIndexRef.current % 120;
+          if (phase < 30) {
+            // Normal walking precursor
+            ax = 0.4 * Math.sin(2 * Math.PI * 1.8 * t);
+            ay = 0.8 * Math.cos(2 * Math.PI * 1.8 * t);
+            az = 0.98;
+            gx = 0.3 * Math.sin(2 * Math.PI * 1.8 * t);
+          } else if (phase < 36) {
+            // Freefall drop (0.12s)
+            ax = 0.08;
+            ay = 0.08;
+            az = 0.10;
+            gx = 1.2;
+            gy = -1.8;
+          } else if (phase < 40) {
+            // High-G ground impact shock (3.8g - 4.2g peak)
+            ax = 1.95;
+            ay = -3.20;
+            az = 2.40;
+            gx = 5.2;
+            gy = -6.8;
+            gz = 3.5;
+          } else {
+            // Post-impact stillness laying horizontally on floor
+            ax = 0.98;
+            ay = 0.02;
+            az = 0.03;
+            gx = 0;
+            gy = 0;
+            gz = 0;
+          }
         }
 
         pushReading({ ax, ay, az, gx, gy, gz });
@@ -387,7 +509,19 @@ export const LiveStreamPage: React.FC = () => {
     }, intervalMs);
   };
 
+  const triggerSimulateFall = () => {
+    setSimActivity('fall');
+    simIndexRef.current = 0;
+    if (isStreaming) {
+      stopSimulation();
+      setTimeout(startSimulation, 50);
+    } else {
+      startSimulation();
+    }
+  };
+
   const stopSimulation = () => {
+
     setIsStreaming(false);
     if (simIntervalRef.current) {
       clearInterval(simIntervalRef.current);
@@ -546,6 +680,19 @@ export const LiveStreamPage: React.FC = () => {
               </select>
             </div>
 
+            {/* Audio Siren Toggle */}
+            <button
+              onClick={() => setSoundEnabled((prev) => !prev)}
+              title={soundEnabled ? 'Emergency Siren Active (Click to Mute)' : 'Emergency Siren Muted (Click to Unmute)'}
+              className={`p-2 rounded-lg border transition-colors ${
+                soundEnabled
+                  ? 'bg-rose-950/60 border-rose-700/50 text-rose-300 hover:bg-rose-900/60'
+                  : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+
             {/* Reset button */}
             <button
               onClick={resetBuffer}
@@ -564,6 +711,67 @@ export const LiveStreamPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* 🚨 Emergency Fall Detection Alert Banner */}
+      {activeFallAlert && (
+        <div className="bg-gradient-to-r from-rose-950/90 via-red-900/80 to-rose-950/90 border-2 border-rose-500 rounded-xl p-5 shadow-2xl shadow-rose-950/80 transition-all">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <div className="p-3 rounded-2xl bg-rose-600 text-white shadow-lg shrink-0">
+                <AlertTriangle className="w-7 h-7" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full bg-rose-500 text-white">
+                    Emergency Alert
+                  </span>
+                  <span className="text-xs font-mono text-rose-200">
+                    Kinetic Impact & Immobility Signature
+                  </span>
+                </div>
+                <h2 className="text-lg sm:text-xl font-extrabold text-white mt-1">
+                  High-Impact Human Fall Detected!
+                </h2>
+                <p className="text-xs text-rose-200/90 mt-0.5">
+                  Instantaneous deceleration shock followed by immobility observed by the 50 Hz physics supervisor.
+                </p>
+                <div className="flex flex-wrap items-center gap-3 mt-3 text-xs">
+                  <span className="bg-black/40 border border-rose-500/40 px-2.5 py-1 rounded-md text-white font-mono font-bold">
+                    Peak Shock: <span className="text-rose-400">{activeFallAlert.peak_g.toFixed(2)}g</span>
+                  </span>
+                  <span className="bg-black/40 border border-rose-500/40 px-2.5 py-1 rounded-md text-white font-mono font-bold">
+                    Jerk: <span className="text-rose-400">{activeFallAlert.peak_jerk.toFixed(1)} g/s</span>
+                  </span>
+                  <span className="bg-black/40 border border-rose-500/40 px-2.5 py-1 rounded-md text-white font-mono font-bold">
+                    Posture: <span className="text-amber-300 capitalize">{activeFallAlert.posture || 'Laying'}</span>
+                  </span>
+                  <span className="bg-black/40 border border-rose-500/40 px-2.5 py-1 rounded-md text-white font-mono font-bold">
+                    Tilt: <span className="text-cyan-300">{activeFallAlert.tilt_deg ? `${activeFallAlert.tilt_deg}°` : '86°'}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Countdown and Action Buttons */}
+            <div className="flex flex-col sm:flex-row items-center gap-3 shrink-0">
+              <div className="text-center sm:text-right">
+                <div className="text-[11px] text-rose-200 uppercase font-semibold">Dispatching SOS In</div>
+                <div className="text-2xl font-black font-mono text-white">
+                  00:{fallCountdown < 10 ? `0${fallCountdown}` : fallCountdown}
+                </div>
+              </div>
+              <button
+                onClick={dismissFallAlert}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                I am OK (Dismiss Alert)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {/* Main Grid: Stream Source & Live HUD */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -631,11 +839,37 @@ export const LiveStreamPage: React.FC = () => {
                           {act.replace('-', ' ')}
                         </button>
                       ))}
+                      <button
+                        onClick={() => {
+                          setSimActivity('fall');
+                          if (isStreaming) {
+                            stopSimulation();
+                            setTimeout(startSimulation, 50);
+                          }
+                        }}
+                        className={`text-xs px-2.5 py-1.5 rounded-md font-bold transition-colors ${
+                          simActivity === 'fall'
+                            ? 'bg-rose-600 text-white shadow-sm'
+                            : 'bg-rose-950/60 text-rose-300 border border-rose-800/60 hover:bg-rose-900/50'
+                        }`}
+                      >
+                        🚨 Fall / Shock
+                      </button>
                     </div>
                   </div>
 
-                  {/* Play / Stop Buttons */}
-                  <div className="flex items-center gap-2">
+                  {/* Play / Stop / Fall Buttons */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={triggerSimulateFall}
+                      disabled={!isConnected}
+                      title="Inject high-G kinetic impact shock and freefall sequence"
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md cursor-pointer"
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-300" />
+                      Simulate Fall
+                    </button>
+
                     {!isStreaming ? (
                       <button
                         onClick={startSimulation}
@@ -648,13 +882,14 @@ export const LiveStreamPage: React.FC = () => {
                     ) : (
                       <button
                         onClick={stopSimulation}
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-md"
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition-all shadow-md"
                       >
-                        <Square className="w-4 h-4 fill-current" />
+                        <Square className="w-4 h-4 fill-current text-rose-400" />
                         Stop Stream
                       </button>
                     )}
                   </div>
+
                 </div>
 
                 <div className="flex items-center gap-4 text-xs text-slate-400 pt-2 border-t border-slate-800/80">
@@ -869,34 +1104,39 @@ export const LiveStreamPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Biomechanical Telemetry Gauges */}
+          {/* Biomechanical Telemetry & Fall Shock Supervisor */}
           <div className="bg-[#111827] border border-slate-800 rounded-xl p-4 space-y-3">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-              <Compass className="w-3.5 h-3.5 text-cyan-400" />
-              Biomechanical Telemetry
-            </h4>
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                <Compass className="w-3.5 h-3.5 text-cyan-400" />
+                Biomechanical Telemetry & Kinetic Shock
+              </h4>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400">
+                Supervisor: Active
+              </span>
+            </div>
 
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-[#090d16] border border-slate-800/80 rounded-lg p-3 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="bg-[#090d16] border border-slate-800/80 rounded-lg p-2.5 text-center">
                 <div className="text-[10px] text-slate-400 uppercase font-semibold">Magnitude</div>
-                <div className="text-lg font-mono font-extrabold text-cyan-400 mt-1">
+                <div className="text-base font-mono font-extrabold text-cyan-400 mt-1">
                   {latestTelemetry.magnitude_g.toFixed(2)}
                   <span className="text-xs text-slate-500 font-normal ml-0.5">g</span>
                 </div>
               </div>
 
-              <div className="bg-[#090d16] border border-slate-800/80 rounded-lg p-3 text-center">
+              <div className="bg-[#090d16] border border-slate-800/80 rounded-lg p-2.5 text-center">
                 <div className="text-[10px] text-slate-400 uppercase font-semibold">Tilt Angle</div>
-                <div className="text-lg font-mono font-extrabold text-amber-400 mt-1">
+                <div className="text-base font-mono font-extrabold text-amber-400 mt-1">
                   {latestTelemetry.tilt_angle_deg.toFixed(1)}°
                 </div>
               </div>
 
-              <div className="bg-[#090d16] border border-slate-800/80 rounded-lg p-3 text-center">
-                <div className="text-[10px] text-slate-400 uppercase font-semibold">State</div>
+              <div className="bg-[#090d16] border border-slate-800/80 rounded-lg p-2.5 text-center">
+                <div className="text-[10px] text-slate-400 uppercase font-semibold">Motion</div>
                 <div className="mt-1">
                   <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-bold uppercase ${
+                    className={`text-[11px] px-2 py-0.5 rounded-full font-bold uppercase ${
                       latestTelemetry.state === 'dynamic'
                         ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
                         : 'bg-indigo-950 text-indigo-400 border border-indigo-800'
@@ -906,10 +1146,86 @@ export const LiveStreamPage: React.FC = () => {
                   </span>
                 </div>
               </div>
+
+              <div className="bg-[#090d16] border border-slate-800/80 rounded-lg p-2.5 text-center">
+                <div className="text-[10px] text-slate-400 uppercase font-semibold">Fall State</div>
+                <div className="mt-1">
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase truncate block ${
+                      latestTelemetry.fall_detected || latestTelemetry.fall_state === 'confirmed_fall'
+                        ? 'bg-rose-950 text-rose-300 border border-rose-600 animate-pulse'
+                        : latestTelemetry.fall_state === 'impact'
+                        ? 'bg-red-950 text-red-300 border border-red-700'
+                        : latestTelemetry.fall_state === 'freefall'
+                        ? 'bg-amber-950 text-amber-300 border border-amber-700'
+                        : latestTelemetry.fall_state === 'immobility'
+                        ? 'bg-orange-950 text-orange-300 border border-orange-700'
+                        : latestTelemetry.fall_state === 'recovered'
+                        ? 'bg-blue-950 text-blue-300 border border-blue-700'
+                        : 'bg-slate-900 text-slate-400 border border-slate-800'
+                    }`}
+                  >
+                    {latestTelemetry.fall_state || 'Normal'}
+                  </span>
+                </div>
+              </div>
             </div>
+
+            {(latestTelemetry.peak_g || 0) > 0 && (
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] font-mono text-slate-400">
+                <span>Peak Shock: <strong className="text-white">{latestTelemetry.peak_g}g</strong></span>
+                <span>Jerk Rate: <strong className="text-white">{latestTelemetry.jerk_g_per_sec || 0} g/s</strong></span>
+              </div>
+            )}
           </div>
+
+          {/* Emergency Fall Incidents History */}
+          {fallHistory.length > 0 && (
+            <div className="bg-[#111827] border border-rose-900/40 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-rose-400 flex items-center gap-2">
+                  <History className="w-3.5 h-3.5 text-rose-400" />
+                  Recorded Emergency Events ({fallHistory.length})
+                </h4>
+                <button
+                  onClick={() => setFallHistory([])}
+                  className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  Clear Log
+                </button>
+              </div>
+
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {fallHistory.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-2.5 rounded-lg bg-[#090d16] border border-rose-800/40 flex items-center justify-between text-xs"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+                      <div>
+                        <div className="font-bold text-white flex items-center gap-1.5">
+                          High-Impact Fall
+                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-950 border border-rose-700 text-rose-300">
+                            {item.peak_g.toFixed(2)}g
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                          Posture: {item.posture || 'Laying'} • Jerk: {item.peak_jerk.toFixed(1)} g/s
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      {new Date(item.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 };
+

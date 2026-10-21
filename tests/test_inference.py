@@ -77,9 +77,58 @@ class TestBackendInference(unittest.TestCase):
         self.assertIn("magnitude_g", telemetry)
         self.assertIn("tilt_angle_deg", telemetry)
         self.assertIn("state", telemetry)
+        self.assertIn("fall_state", telemetry)
         self.assertGreater(telemetry["magnitude_g"], 0.8)
 
+    def test_fall_detection_engine(self):
+        """Verify multi-stage kinetic shock, freefall, and immobility detection in RealTimeStreamBuffer."""
+        buf = RealTimeStreamBuffer(capacity=256, window_size=128, stride=16)
+
+        # 1. Normal movement (30 samples)
+        for i in range(30):
+            buf.add_reading({
+                "accel_x": 0.3 * np.sin(i * 0.1),
+                "accel_y": 0.9 * np.cos(i * 0.1),
+                "accel_z": 0.98,
+                "gyro_x": 0.2, "gyro_y": 0.1, "gyro_z": 0.1,
+            })
+        self.assertEqual(buf.fall_state, "normal")
+
+        # 2. Freefall (6 samples with magnitude < 0.55g)
+        for _ in range(6):
+            buf.add_reading({
+                "accel_x": 0.08, "accel_y": 0.10, "accel_z": 0.12,
+                "gyro_x": 1.2, "gyro_y": -1.8, "gyro_z": 0.6,
+            })
+        self.assertEqual(buf.fall_state, "freefall")
+
+        # 3. High-G impact shock (4 samples with magnitude > 3.5g)
+        buf.add_reading({"accel_x": 2.2, "accel_y": -3.4, "accel_z": 2.1, "gyro_x": 5.8, "gyro_y": -7.5, "gyro_z": 4.0})
+        buf.add_reading({"accel_x": 1.4, "accel_y": -2.1, "accel_z": 1.8, "gyro_x": 2.8, "gyro_y": -3.5, "gyro_z": 1.8})
+        self.assertIn(buf.fall_state, ("impact", "immobility"))
+        self.assertGreater(buf.impact_peak_g, 2.8)
+
+        # 4. Post-impact stillness (laying motionless on floor, 50 samples)
+        for _ in range(50):
+            buf.add_reading({
+                "accel_x": 0.98, "accel_y": 0.02, "accel_z": 0.03,
+                "gyro_x": 0.0, "gyro_y": 0.0, "gyro_z": 0.0,
+            })
+
+        self.assertTrue(buf.fall_confirmed)
+        self.assertEqual(buf.fall_state, "confirmed_fall")
+        alert = buf.pop_fall_alert()
+        self.assertIsNotNone(alert)
+        self.assertEqual(alert["type"], "fall_alert")
+        self.assertGreaterEqual(alert["peak_g"], 2.8)
+
+        # Verify manual reset
+        buf.reset_fall_state()
+        self.assertFalse(buf.fall_confirmed)
+        self.assertEqual(buf.fall_state, "normal")
+
     def test_window_slicing_strides(self):
+
         """Verify window slicing for 384-row input: stride 64 yields 5 windows, stride 128 yields 3 windows."""
         data_384 = np.zeros((384, 9), dtype=np.float32)
         windows_64, time_64 = slice_sensor_windows(data_384, stride=64)

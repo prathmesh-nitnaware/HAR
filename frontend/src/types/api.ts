@@ -31,6 +31,21 @@ export interface LiveTelemetry {
   state: 'dynamic' | 'static' | string;
   motion_variance?: number;
   sample_count: number;
+  fall_detected?: boolean;
+  fall_state?: 'normal' | 'freefall' | 'impact' | 'immobility' | 'confirmed_fall' | 'recovered' | string;
+  peak_g?: number;
+  jerk_g_per_sec?: number;
+}
+
+export interface FallAlertEvent {
+  type: 'fall_alert';
+  timestamp: number;
+  severity: 'warning' | 'critical' | string;
+  peak_g: number;
+  peak_jerk: number;
+  posture: string;
+  tilt_deg?: number;
+  message: string;
 }
 
 export interface LivePredictionMessage {
@@ -45,6 +60,7 @@ export interface LivePredictionMessage {
   latency_ms: number;
   telemetry: LiveTelemetry;
 }
+
 
 export interface SampleSummary {
   id: string;

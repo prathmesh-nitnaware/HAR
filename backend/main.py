@@ -396,6 +396,56 @@ def get_simulation_samples():
             }
         except Exception as e:
             logger.warning("Could not load simulation sample for %s: %s", sample_id, e)
+
+    # Synthesize realistic Fall & Impact emergency sequence
+    # 30 samples normal walking -> 6 samples free-fall drop -> 4 samples impact shock -> 80 samples post-fall stillness (laying)
+    fall_readings = []
+    # 1. Normal movement (0.6s)
+    for i in range(30):
+        t = i * 0.02
+        fall_readings.append({
+            "accel_x": float(0.3 * np.sin(2 * np.pi * 1.8 * t)),
+            "accel_y": float(0.85 * np.cos(2 * np.pi * 1.8 * t)),
+            "accel_z": float(0.98 + 0.2 * np.sin(4 * np.pi * 1.8 * t)),
+            "gyro_x": float(0.4 * np.sin(2 * np.pi * 1.8 * t)),
+            "gyro_y": float(0.2 * np.cos(2 * np.pi * 1.8 * t)),
+            "gyro_z": float(0.1),
+        })
+    # 2. Free-fall slip / flight (0.12s, magnitude drops to ~0.15g)
+    for _ in range(6):
+        fall_readings.append({
+            "accel_x": 0.08,
+            "accel_y": 0.10,
+            "accel_z": 0.12,
+            "gyro_x": 1.2,
+            "gyro_y": -1.8,
+            "gyro_z": 0.6,
+        })
+    # 3. High-g Ground Impact Shock (0.08s, magnitude spikes to 3.8g - 4.2g)
+    shock_patterns = [
+        {"accel_x": 1.85, "accel_y": -2.95, "accel_z": 2.45, "gyro_x": 4.5, "gyro_y": -6.2, "gyro_z": 3.1},
+        {"accel_x": 2.20, "accel_y": -3.40, "accel_z": 2.10, "gyro_x": 5.8, "gyro_y": -7.5, "gyro_z": 4.0},
+        {"accel_x": 1.40, "accel_y": -2.10, "accel_z": 1.80, "gyro_x": 2.8, "gyro_y": -3.5, "gyro_z": 1.8},
+        {"accel_x": 0.90, "accel_y": -1.20, "accel_z": 1.10, "gyro_x": 1.2, "gyro_y": -1.5, "gyro_z": 0.8},
+    ]
+    fall_readings.extend(shock_patterns)
+    # 4. Post-impact stillness (laying motionless on floor, horizontal tilt, ~1.6s)
+    for _ in range(80):
+        fall_readings.append({
+            "accel_x": float(0.96 + (np.random.rand() - 0.5) * 0.01),
+            "accel_y": float(0.04 + (np.random.rand() - 0.5) * 0.01),
+            "accel_z": float(0.05 + (np.random.rand() - 0.5) * 0.01),
+            "gyro_x": 0.0,
+            "gyro_y": 0.0,
+            "gyro_z": 0.0,
+        })
+
+    results["fall"] = {
+        "name": "🚨 Simulated Fall & Impact Shock",
+        "activity": "fall",
+        "readings": fall_readings,
+    }
+
     return {"samples": results}
 
 
@@ -404,7 +454,8 @@ async def websocket_sensor_stream(websocket: WebSocket):
     """Real-time bi-directional WebSocket stream for live smartphone or simulated sensor data.
     
     Accepts incoming 50 Hz IMU packets (6-channel raw or 9-channel), buffers rolling 128-sample
-    windows, extracts real-time biomechanical telemetry, and pushes continuous model classifications.
+    windows, extracts real-time biomechanical telemetry, monitors fall/shock anomalies, and pushes
+    continuous model classifications.
     """
     await websocket.accept()
     buffer = RealTimeStreamBuffer(capacity=512, window_size=128, stride=16)
@@ -441,9 +492,22 @@ async def websocket_sensor_stream(websocket: WebSocket):
                     "stride": buffer.stride,
                 })
 
+            elif action == "clear_fall_alert":
+                buffer.reset_fall_state()
+                await websocket.send_json({
+                    "type": "fall_alert_cleared",
+                    "message": "Fall alert acknowledged and reset.",
+                    "telemetry": buffer.compute_telemetry(),
+                })
+
             elif action == "push":
                 reading = msg.get("data", {})
                 buffer.add_reading(reading)
+
+                # Check if emergency fall engine has a triggered alert
+                fall_alert = buffer.pop_fall_alert()
+                if fall_alert is not None:
+                    await websocket.send_json(fall_alert)
                 
                 if buffer.should_predict():
                     window_count += 1
@@ -461,6 +525,8 @@ async def websocket_sensor_stream(websocket: WebSocket):
                             conf = float(probs[pred_idx])
                             pred_key = ACTIVITIES[pred_idx]
                             
+                            buffer.update_prediction_posture(pred_key)
+
                             pred_payload = {
                                 "type": "prediction",
                                 "timestamp": time.time(),
@@ -492,6 +558,11 @@ async def websocket_sensor_stream(websocket: WebSocket):
                 batch = msg.get("batch", [])
                 for reading in batch:
                     buffer.add_reading(reading)
+                    
+                    fall_alert = buffer.pop_fall_alert()
+                    if fall_alert is not None:
+                        await websocket.send_json(fall_alert)
+
                     if buffer.should_predict():
                         window_count += 1
                         window_arr = buffer.extract_latest_window()
@@ -507,6 +578,8 @@ async def websocket_sensor_stream(websocket: WebSocket):
                                 conf = float(probs[pred_idx])
                                 pred_key = ACTIVITIES[pred_idx]
                                 
+                                buffer.update_prediction_posture(pred_key)
+
                                 await websocket.send_json({
                                     "type": "prediction",
                                     "timestamp": time.time(),

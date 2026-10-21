@@ -9,8 +9,10 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
 
 import numpy as np
 import pandas as pd
@@ -591,7 +593,7 @@ class RealTimeStreamBuffer:
     
     Accepts 6-channel raw readings (accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z) or
     9-channel standard readings, performs real-time window buffering, low-pass gravity filtering,
-    instant inference, and biomechanical posture/motion telemetry extraction.
+    instant inference, biomechanical posture telemetry, and multi-stage fall & impact shock detection.
     """
 
     def __init__(self, capacity: int = 512, window_size: int = 128, stride: int = 16) -> None:
@@ -605,6 +607,24 @@ class RealTimeStreamBuffer:
         self.raw_accel_history: deque = deque(maxlen=capacity)
         self.raw_gyro_history: deque = deque(maxlen=capacity)
         self.buffer_9ch: deque = deque(maxlen=capacity)
+
+        # Fall Detection & Shock Physics Engine Parameters
+        self.freefall_threshold_g: float = 0.55   # Magnitude drops < 0.55g indicates freefall
+        self.impact_threshold_g: float = 2.8      # Magnitude spike > 2.8g indicates impact
+        self.jerk_threshold_g_s: float = 12.0     # Jerk rate > 12 g/s indicates sudden kinetic shock
+        self.immobility_var_thresh: float = 0.025 # Post-impact immobility variance threshold
+
+        # Internal state tracking
+        self.prev_total_accel: Optional[np.ndarray] = None
+        self.recent_jerks: deque = deque(maxlen=64)
+        self.fall_state: str = "normal"  # "normal" | "freefall" | "impact" | "immobility" | "confirmed_fall" | "recovered"
+        self.freefall_sample_idx: int = -1
+        self.impact_sample_idx: int = -1
+        self.impact_peak_g: float = 0.0
+        self.impact_peak_jerk: float = 0.0
+        self.fall_confirmed: bool = False
+        self.fall_alert_pending: Optional[dict] = None
+        self.last_predicted_posture: str = "unknown"
 
     def add_reading(self, reading: dict) -> None:
         """Add a single reading dict. Supports 6-channel or 9-channel keys."""
@@ -634,6 +654,79 @@ class RealTimeStreamBuffer:
             sample_9 = body_acc + body_gyro + total_acc
             self.buffer_9ch.append(sample_9)
 
+        # Kinetic Shock & Fall Detection Supervisor
+        tot_x, tot_y, tot_z = sample_9[6], sample_9[7], sample_9[8]
+        norm_g = float(np.sqrt(tot_x**2 + tot_y**2 + tot_z**2))
+        curr_acc = np.array([tot_x, tot_y, tot_z], dtype=np.float32)
+
+        if self.prev_total_accel is not None:
+            # At 50 Hz, dt = 0.02s
+            jerk = float(np.linalg.norm(curr_acc - self.prev_total_accel) / 0.02)
+        else:
+            jerk = 0.0
+        self.prev_total_accel = curr_acc
+        self.recent_jerks.append(jerk)
+
+        curr_idx = self.total_samples_received
+
+        # Stage 1: Freefall Detection
+        if norm_g < self.freefall_threshold_g:
+            if self.fall_state in ("normal", "recovered"):
+                self.fall_state = "freefall"
+                self.freefall_sample_idx = curr_idx
+
+        # Stage 2: Impact Shock Detection
+        # Preceded by freefall within 35 samples (~0.7s), or a direct violent impact shock
+        has_recent_freefall = (
+            self.fall_state == "freefall" and (curr_idx - self.freefall_sample_idx) <= 35
+        )
+        is_violent_impact = (norm_g >= 3.2 and jerk >= self.jerk_threshold_g_s)
+
+        if (has_recent_freefall and norm_g >= self.impact_threshold_g) or is_violent_impact:
+            self.fall_state = "impact"
+            self.impact_sample_idx = curr_idx
+            self.impact_peak_g = max(self.impact_peak_g, norm_g)
+            self.impact_peak_jerk = max(self.impact_peak_jerk, jerk)
+
+        elif self.fall_state == "impact":
+            self.impact_peak_g = max(self.impact_peak_g, norm_g)
+            self.impact_peak_jerk = max(self.impact_peak_jerk, jerk)
+            if curr_idx - self.impact_sample_idx >= 12:
+                self.fall_state = "immobility"
+
+        elif self.fall_state == "immobility":
+            elapsed = curr_idx - self.impact_sample_idx
+            recent = list(self.buffer_9ch)[-min(25, len(self.buffer_9ch)):]
+            body_acc = np.array([s[0:3] for s in recent])
+            motion_var = float(np.mean(np.var(body_acc, axis=0))) if len(body_acc) > 5 else 0.0
+
+            if elapsed >= 35:
+                if motion_var < self.immobility_var_thresh:
+                    # Confirmed Fall: motionless post-impact
+                    self.fall_state = "confirmed_fall"
+                    self.fall_confirmed = True
+                    tilt_deg = float(np.arccos(np.clip(tot_y / max(norm_g, 1e-6), -1.0, 1.0)) * (180.0 / np.pi))
+                    self.fall_alert_pending = {
+                        "type": "fall_alert",
+                        "timestamp": time.time(),
+                        "severity": "critical",
+                        "peak_g": round(self.impact_peak_g, 2),
+                        "peak_jerk": round(self.impact_peak_jerk, 2),
+                        "posture": self.last_predicted_posture,
+                        "tilt_deg": round(tilt_deg, 1),
+                        "message": "EMERGENCY: High-impact fall detected with post-impact immobility.",
+                    }
+                elif motion_var > 0.08:
+                    # Dynamic motion resumed: recovered
+                    self.fall_state = "recovered"
+
+        elif self.fall_state in ("confirmed_fall", "recovered"):
+            if curr_idx - self.impact_sample_idx > 250:
+                self.fall_state = "normal"
+                self.fall_confirmed = False
+                self.impact_peak_g = 0.0
+                self.impact_peak_jerk = 0.0
+
         self.total_samples_received += 1
         self.samples_since_last_pred += 1
 
@@ -648,14 +741,40 @@ class RealTimeStreamBuffer:
         self.samples_since_last_pred = 0
         return arr[np.newaxis, ...]  # (1, 9, 128)
 
+    def update_prediction_posture(self, posture: str) -> None:
+        """Update recent predicted posture for context-aware emergency alerting."""
+        self.last_predicted_posture = posture
+        if self.fall_alert_pending and self.fall_alert_pending.get("posture") in ("unknown", ""):
+            self.fall_alert_pending["posture"] = posture
+
+    def pop_fall_alert(self) -> Optional[dict]:
+        """Pops and returns a pending fall alert event if one was triggered."""
+        if self.fall_alert_pending is not None:
+            alert = self.fall_alert_pending
+            self.fall_alert_pending = None
+            return alert
+        return None
+
+    def reset_fall_state(self) -> None:
+        """Manually clear active fall alerts and reset fall state machine."""
+        self.fall_state = "normal"
+        self.fall_confirmed = False
+        self.impact_peak_g = 0.0
+        self.impact_peak_jerk = 0.0
+        self.fall_alert_pending = None
+
     def compute_telemetry(self) -> dict:
-        """Compute real-time biomechanical telemetry from the most recent readings."""
+        """Compute real-time biomechanical telemetry and fall state from the most recent readings."""
         if not self.buffer_9ch:
             return {
                 "magnitude_g": 0.0,
                 "tilt_angle_deg": 0.0,
                 "state": "unknown",
                 "sample_count": 0,
+                "fall_detected": False,
+                "fall_state": "normal",
+                "peak_g": 0.0,
+                "jerk_g_per_sec": 0.0,
             }
         latest = self.buffer_9ch[-1]
         tot_x, tot_y, tot_z = latest[6], latest[7], latest[8]
@@ -668,11 +787,18 @@ class RealTimeStreamBuffer:
         motion_var = float(np.mean(np.var(body_acc, axis=0)))
         state = "dynamic" if motion_var > 0.015 else "static"
         
+        latest_jerk = float(self.recent_jerks[-1]) if self.recent_jerks else 0.0
+
         return {
             "magnitude_g": round(float(norm_g), 3),
             "tilt_angle_deg": round(tilt_deg, 1),
             "state": state,
             "motion_variance": round(motion_var, 4),
             "sample_count": self.total_samples_received,
+            "fall_detected": self.fall_confirmed,
+            "fall_state": self.fall_state,
+            "peak_g": round(self.impact_peak_g, 2),
+            "jerk_g_per_sec": round(latest_jerk, 2),
         }
+
 

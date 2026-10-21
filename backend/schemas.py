@@ -130,6 +130,21 @@ class LiveTelemetry(BaseModel):
     state: str
     motion_variance: Optional[float] = None
     sample_count: int
+    fall_detected: bool = Field(default=False, description="True if a confirmed fall event is detected")
+    fall_state: str = Field(default="normal", description="Current fall engine state ('normal', 'freefall', 'impact', 'immobility', 'confirmed_fall', 'recovered')")
+    peak_g: float = Field(default=0.0, description="Peak impact shock acceleration in g")
+    jerk_g_per_sec: float = Field(default=0.0, description="Instantaneous jerk rate in g/s")
+
+
+class FallAlertEvent(BaseModel):
+    type: str = "fall_alert"
+    timestamp: float
+    severity: str = Field(default="critical", description="'warning' or 'critical'")
+    peak_g: float
+    peak_jerk: float
+    posture: str
+    tilt_deg: Optional[float] = None
+    message: str
 
 
 class LivePredictionMessage(BaseModel):
@@ -142,4 +157,5 @@ class LivePredictionMessage(BaseModel):
     model: str
     telemetry: LiveTelemetry
     window_count: int
+
 
