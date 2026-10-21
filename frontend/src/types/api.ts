@@ -19,6 +19,7 @@ export interface ModelMetadata {
   input_representation: string;
   parameters: number | null;
   disk_size_mb: number | null;
+  int8_size_mb?: number | null;
   status: 'ready' | 'unavailable' | string;
   test_accuracy: number | null;
   macro_f1: number | null;

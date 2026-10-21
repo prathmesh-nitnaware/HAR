@@ -500,12 +500,29 @@ Follow this 8-step demonstration sequence for an academic presentation:
 
 ---
 
+## P. Edge & Mobile Optimization (ONNX & INT8 Quantization)
+
+All trained deep learning architectures are exported to standard ONNX computational graphs and dynamically quantized to 8-bit integer (INT8) precision for resource-constrained edge and mobile runtimes:
+
+| Architecture | PyTorch FP32 Size | ONNX INT8 Size | Disk Compression | PyTorch Latency | INT8 Latency | Accuracy Retention |
+|---|---|---|---|---|---|---|
+| **DeepConvLSTM** | 1.99 MB | **0.53 MB** | **73.4%** | 3.42 ms | **1.00 ms** (3.4x) | **99.89%** (93.69% acc) |
+| **1D-CNN** | 2.73 MB | **0.69 MB** | **74.7%** | 2.00 ms | **0.66 ms** (3.0x) | **100.0%** (94.20% acc) |
+| **LSTM** | 2.06 MB | **0.53 MB** | **74.3%** | 6.78 ms | **2.65 ms** (2.5x) | **100.0%** (91.75% acc) |
+| **GRU** | 1.55 MB | **1.55 MB** | 0.0% | 23.55 ms | **3.21 ms** (7.3x) | **100.0%** (91.58% acc) |
+
+To re-run the optimization and benchmarking pipeline:
+```powershell
+python scripts/optimize_and_benchmark.py
+```
+
+---
+
 ## Q. Future Improvements
 
-As realistic next steps for this mini-project:
-1. **On-Device Mobile Export**: Convert trained PyTorch checkpoints to ONNX Runtime or TensorFlow Lite for on-device inference inside Android/iOS applications.
-2. **WebSocket Streaming**: Implement a real-time streaming endpoint for continuous accelerometer feeds over WebSockets.
-3. **Domain Adaptation**: Add lightweight fine-tuning to adapt to varied smartphone placements (e.g., front pocket, armband).
+1. **Domain Adaptation**: Add lightweight fine-tuning to adapt to varied smartphone placements (e.g., front pocket, armband).
+2. **Fall & Impact Detection**: Add high-g impact triggering (>3.0g) followed by motionless posture alerting for geriatric safety.
+3. **Multi-Dataset Transfer Learning**: Pretrain on WISDM and PAMAP2 multi-sensor datasets.
 
 ---
 

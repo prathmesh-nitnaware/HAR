@@ -403,6 +403,8 @@ export const ResultsPage: React.FC = () => {
                     <th className="py-2.5 px-3">Test Accuracy</th>
                     <th className="py-2.5 px-3">Macro-F1</th>
                     <th className="py-2.5 px-3">Parameters</th>
+                    <th className="py-2.5 px-3">FP32 Size</th>
+                    <th className="py-2.5 px-3">INT8 Edge</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 font-mono">
@@ -418,6 +420,18 @@ export const ResultsPage: React.FC = () => {
                       </td>
                       <td className="py-2.5 px-3 text-slate-300">
                         {m.parameters !== null ? m.parameters.toLocaleString() : 'N/A (Trees)'}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-400">
+                        {m.disk_size_mb !== null ? `${m.disk_size_mb} MB` : 'N/A'}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        {m.int8_size_mb !== null ? (
+                          <span className="text-cyan-300 font-bold bg-cyan-950/70 border border-cyan-800/60 px-1.5 py-0.5 rounded text-[11px]">
+                            {m.int8_size_mb} MB
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">N/A</span>
+                        )}
                       </td>
                     </tr>
                   ))}

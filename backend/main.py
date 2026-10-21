@@ -345,6 +345,24 @@ def get_confusion_matrices():
     return ConfusionMatrixResponse(**data)
 
 
+@app.get(
+    "/api/optimization",
+    summary="Edge & Mobile Optimization Benchmarks",
+    tags=["Evaluation"],
+)
+def get_optimization_report():
+    """Retrieve ONNX export and INT8 quantization benchmarks (compression ratio, latency speedup, accuracy retention)."""
+    from backend.inference import OUT_DIR
+    import json
+    report_file = OUT_DIR / "quantization_report.json"
+    if not report_file.exists():
+        return {"report": {}}
+    with open(report_file) as f:
+        data = json.load(f)
+    return {"report": data}
+
+
+
 # ── Live Real-Time Streaming & WebSocket ──────────────────────────────────────
 
 @app.get(

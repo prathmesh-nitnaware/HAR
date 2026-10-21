@@ -177,6 +177,8 @@ class ModelManager:
             m_type, arch_desc, input_desc = descriptions[m_key]
             weights_path = self.out_dir / f"{m_key}_best.pt"
             disk_mb = round(weights_path.stat().st_size / (1024 * 1024), 2) if weights_path.exists() else None
+            onnx_int8_path = self.out_dir / "onnx" / f"{m_key}_int8.onnx"
+            int8_mb = round(onnx_int8_path.stat().st_size / (1024 * 1024), 2) if onnx_int8_path.exists() else None
 
             model_obj = self.models.get(m_key)
             if model_obj is not None:
@@ -211,6 +213,7 @@ class ModelManager:
                 "input_representation": input_desc,
                 "parameters": params,
                 "disk_size_mb": disk_mb,
+                "int8_size_mb": int8_mb,
                 "status": "ready" if is_ready else "unavailable",
                 "test_accuracy": m_metric.get("accuracy"),
                 "macro_f1": m_metric.get("macro_f1"),

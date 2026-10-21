@@ -22,6 +22,7 @@ class ModelMetadata(BaseModel):
     input_representation: str = Field(..., description="Feature shape and input representation")
     parameters: Optional[int] = Field(None, description="Trainable parameter count")
     disk_size_mb: Optional[float] = Field(None, description="Model checkpoint file size in MB")
+    int8_size_mb: Optional[float] = Field(None, description="Quantized INT8 ONNX model size in MB")
     status: str = Field(..., description="'ready' or 'unavailable'")
     test_accuracy: Optional[float] = Field(None, description="Benchmark test accuracy")
     macro_f1: Optional[float] = Field(None, description="Benchmark test macro F1")

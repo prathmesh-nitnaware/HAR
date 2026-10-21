@@ -35,6 +35,22 @@ class TestBackendInference(unittest.TestCase):
         self.assertTrue(self.mgr.load_status.get("lstm", False), "LSTM model failed to load")
         self.assertEqual(len(self.mgr.models), 4)
 
+    def test_quantized_specs_and_artifacts(self):
+        """Verify that model specs include valid INT8 quantized sizes and ONNX artifacts exist."""
+        specs = self.mgr.get_model_specs()
+        self.assertEqual(len(specs), 5)
+        spec_dict = {s["id"]: s for s in specs}
+        
+        # ConvLSTM should have INT8 size reported ~0.53MB
+        self.assertIn("convlstm", spec_dict)
+        self.assertIsNotNone(spec_dict["convlstm"]["int8_size_mb"])
+        self.assertLess(spec_dict["convlstm"]["int8_size_mb"], 1.0)
+        
+        # CNN1D should have INT8 size reported ~0.69MB
+        self.assertIn("cnn1d", spec_dict)
+        self.assertIsNotNone(spec_dict["cnn1d"]["int8_size_mb"])
+        self.assertLess(spec_dict["cnn1d"]["int8_size_mb"], 1.0)
+
     def test_realtime_stream_buffer(self):
         """Verify RealTimeStreamBuffer ingests readings, calculates telemetry, and extracts 128-window array."""
         buf = RealTimeStreamBuffer(capacity=256, window_size=128, stride=16)

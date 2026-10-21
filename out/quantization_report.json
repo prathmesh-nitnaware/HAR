@@ -1,0 +1,106 @@
+{
+  "convlstm": {
+    "model": "convlstm",
+    "pytorch_fp32": {
+      "size_mb": 1.99,
+      "latency_mean_ms": 3.425,
+      "latency_p95_ms": 4.305,
+      "test_accuracy": 0.9379,
+      "macro_f1": 0.9398
+    },
+    "onnx_fp32": {
+      "size_mb": 1.98,
+      "latency_mean_ms": 1.252,
+      "latency_p95_ms": 1.447,
+      "test_accuracy": 0.9379,
+      "macro_f1": 0.9398
+    },
+    "onnx_int8": {
+      "size_mb": 0.53,
+      "latency_mean_ms": 1.003,
+      "latency_p95_ms": 1.39,
+      "test_accuracy": 0.9369,
+      "macro_f1": 0.9388,
+      "compression_vs_pytorch_pct": 73.4,
+      "speedup_vs_pytorch": "3.41x"
+    }
+  },
+  "cnn1d": {
+    "model": "cnn1d",
+    "pytorch_fp32": {
+      "size_mb": 2.73,
+      "latency_mean_ms": 1.998,
+      "latency_p95_ms": 3.449,
+      "test_accuracy": 0.942,
+      "macro_f1": 0.9433
+    },
+    "onnx_fp32": {
+      "size_mb": 2.7,
+      "latency_mean_ms": 0.512,
+      "latency_p95_ms": 0.791,
+      "test_accuracy": 0.942,
+      "macro_f1": 0.9433
+    },
+    "onnx_int8": {
+      "size_mb": 0.69,
+      "latency_mean_ms": 0.662,
+      "latency_p95_ms": 1.217,
+      "test_accuracy": 0.942,
+      "macro_f1": 0.9432,
+      "compression_vs_pytorch_pct": 74.7,
+      "speedup_vs_pytorch": "3.02x"
+    }
+  },
+  "gru": {
+    "model": "gru",
+    "pytorch_fp32": {
+      "size_mb": 1.55,
+      "latency_mean_ms": 23.545,
+      "latency_p95_ms": 27.676,
+      "test_accuracy": 0.9158,
+      "macro_f1": 0.9162
+    },
+    "onnx_fp32": {
+      "size_mb": 1.55,
+      "latency_mean_ms": 2.889,
+      "latency_p95_ms": 3.427,
+      "test_accuracy": 0.9158,
+      "macro_f1": 0.9162
+    },
+    "onnx_int8": {
+      "size_mb": 1.55,
+      "latency_mean_ms": 3.215,
+      "latency_p95_ms": 5.082,
+      "test_accuracy": 0.9158,
+      "macro_f1": 0.9162,
+      "compression_vs_pytorch_pct": 0.0,
+      "speedup_vs_pytorch": "7.32x"
+    }
+  },
+  "lstm": {
+    "model": "lstm",
+    "pytorch_fp32": {
+      "size_mb": 2.06,
+      "latency_mean_ms": 6.776,
+      "latency_p95_ms": 12.286,
+      "test_accuracy": 0.9172,
+      "macro_f1": 0.9181
+    },
+    "onnx_fp32": {
+      "size_mb": 2.06,
+      "latency_mean_ms": 5.155,
+      "latency_p95_ms": 8.878,
+      "test_accuracy": 0.9172,
+      "macro_f1": 0.9181
+    },
+    "onnx_int8": {
+      "size_mb": 0.53,
+      "latency_mean_ms": 2.653,
+      "latency_p95_ms": 4.25,
+      "test_accuracy": 0.9175,
+      "macro_f1": 0.9185,
+      "compression_vs_pytorch_pct": 74.3,
+      "speedup_vs_pytorch": "2.55x"
+    }
+  }
+}
