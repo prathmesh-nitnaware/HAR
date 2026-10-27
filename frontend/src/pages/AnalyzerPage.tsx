@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import {
   Upload,
@@ -12,6 +12,7 @@ import {
   Clock,
   Sparkles,
   HelpCircle,
+  Camera,
 } from 'lucide-react';
 import { apiService } from '../api/client';
 import type { SampleSummary, PredictResponse } from '../types/api';
@@ -164,6 +165,17 @@ export const AnalyzerPage: React.FC = () => {
             9-ch / 6-ch IMU
           </span>
         </button>
+
+        <Link
+          to="/vision"
+          className="flex-1 py-3 px-4 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-all text-slate-400 hover:text-white hover:bg-slate-800/50"
+        >
+          <Camera className="w-4 h-4 text-indigo-400" />
+          <span>Mode 3: Camera & Photo AI</span>
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+            NEW
+          </span>
+        </Link>
       </div>
 
       {/* Error Alert */}

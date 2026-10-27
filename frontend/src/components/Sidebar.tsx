@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Radio,
+  Camera,
   Cpu,
   FileSpreadsheet,
   ChevronLeft,
@@ -25,6 +26,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
       label: 'Dashboard',
       icon: LayoutDashboard,
       description: 'System health & model benchmarks',
+    },
+    {
+      to: '/vision',
+      label: 'Photo & Vision AI',
+      icon: Camera,
+      description: 'Camera snapshot & photo posture AI',
+      badge: 'NEW',
     },
     {
       to: '/stream',

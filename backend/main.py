@@ -44,7 +44,13 @@ from backend.schemas import (
     PredictResponse,
     SampleDetailResponse,
     SampleSummary,
+    VisionBase64Request,
+    VisionDemoSampleItem,
+    VisionDemoSamplesResponse,
+    VisionPredictionResponse,
+    NetworkInfoResponse,
 )
+from backend.vision import VISION_ACTIVITIES, VISION_LABELS, get_vision_classifier
 
 # Configure logging
 logging.basicConfig(
@@ -76,15 +82,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configure CORS for local development (React Vite dev server defaults to localhost:5173)
+# Configure CORS for local development and LAN mobile phone connectivity
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origin_regex=r"^https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -140,6 +141,32 @@ def get_health():
         models=mgr.load_status,
         models_loaded_count=loaded_count,
         total_models=total_models,
+    )
+
+
+@app.get(
+    "/api/system/network-info",
+    response_model=NetworkInfoResponse,
+    summary="Local Network Connectivity & Phone Pairing Info",
+    tags=["System"],
+)
+def get_network_info():
+    """Detect LAN IP address to facilitate pairing smartphones over local Wi-Fi."""
+    import socket
+    local_ip = "127.0.0.1"
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        pass
+
+    return NetworkInfoResponse(
+        local_ip=local_ip,
+        vision_url=f"http://{local_ip}:5173/vision",
+        stream_url=f"http://{local_ip}:5173/stream",
+        api_url=f"http://{local_ip}:8000",
     )
 
 
@@ -608,4 +635,118 @@ async def websocket_sensor_stream(websocket: WebSocket):
         logger.info("Live WebSocket client disconnected.")
     except Exception as exc:
         logger.error("Error in sensor stream WebSocket: %s", exc)
+
+
+# ============================================================================
+# Vision Fallback & Optical Activity Recognition Endpoints
+# ============================================================================
+
+VISION_SAMPLE_METADATA = [
+    {
+        "id": "demo_walking",
+        "title": "Walking Stride",
+        "activity": "walking",
+        "description": "Dynamic bipedal locomotion showing extended forward and rear stride separation.",
+        "file": "demo_walking.jpg",
+    },
+    {
+        "id": "demo_standing",
+        "title": "Standing Posture",
+        "activity": "standing",
+        "description": "Static upright vertical posture with narrow base of support and aligned limbs.",
+        "file": "demo_standing.jpg",
+    },
+    {
+        "id": "demo_sitting",
+        "title": "Sitting Posture",
+        "activity": "sitting",
+        "description": "Folded seated posture on chair with 90° knee angle and horizontal thighs.",
+        "file": "demo_sitting.jpg",
+    },
+    {
+        "id": "demo_laying",
+        "title": "Laying / Rest",
+        "activity": "laying",
+        "description": "Elongated horizontal body orientation resting flat along support plane.",
+        "file": "demo_laying.jpg",
+    },
+    {
+        "id": "demo_fall",
+        "title": "Fall Accident",
+        "activity": "fall",
+        "description": "Sudden ground impact collapse with sprawled limbs triggering optical emergency alert.",
+        "file": "demo_fall.jpg",
+    },
+]
+
+
+@app.get("/api/vision/demo-samples", response_model=VisionDemoSamplesResponse, tags=["Vision Fallback"])
+async def get_vision_demo_samples():
+    """Retrieve pre-packaged demo posture images for optical activity classification fallback."""
+    import base64
+    samples_dir = Path(__file__).parent / "vision_samples"
+    result_items: List[VisionDemoSampleItem] = []
+
+    for meta in VISION_SAMPLE_METADATA:
+        img_path = samples_dir / meta["file"]
+        b64_data = ""
+        if img_path.exists():
+            with open(img_path, "rb") as f:
+                b64_data = f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode('utf-8')}"
+
+        result_items.append(
+            VisionDemoSampleItem(
+                id=meta["id"],
+                title=meta["title"],
+                activity=meta["activity"],
+                description=meta["description"],
+                image_base64=b64_data,
+            )
+        )
+
+    return VisionDemoSamplesResponse(samples=result_items)
+
+
+@app.post("/api/vision/predict", response_model=VisionPredictionResponse, tags=["Vision Fallback"])
+async def predict_vision_upload(file: UploadFile = File(...)):
+    """Classify human activity and extract skeletal landmarks from an uploaded photo or frame."""
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Uploaded file '{file.filename}' is not a valid image format.",
+        )
+
+    try:
+        contents = await file.read()
+        classifier = get_vision_classifier()
+        prediction = classifier.classify_bytes(contents)
+        return VisionPredictionResponse(**prediction)
+    except Exception as exc:
+        logger.error("Failed to process image upload: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Optical pose recognition failed: {str(exc)}",
+        )
+
+
+@app.post("/api/vision/predict-base64", response_model=VisionPredictionResponse, tags=["Vision Fallback"])
+async def predict_vision_base64(req: VisionBase64Request):
+    """Classify human activity from a webcam snapshot or base64 data URL."""
+    if not req.image_base64:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="image_base64 field cannot be empty.",
+        )
+
+    try:
+        classifier = get_vision_classifier()
+        prediction = classifier.classify_base64(req.image_base64)
+        return VisionPredictionResponse(**prediction)
+    except Exception as exc:
+        logger.error("Failed to process base64 image: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Optical pose recognition failed: {str(exc)}",
+        )
+
 

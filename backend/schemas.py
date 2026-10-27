@@ -159,3 +159,66 @@ class LivePredictionMessage(BaseModel):
     window_count: int
 
 
+# ============================================================================
+# Vision Fallback & Optical Pose Recognition Schemas
+# ============================================================================
+
+class VisionKeypoint(BaseModel):
+    name: str
+    x: float
+    y: float
+    confidence: float
+
+
+class VisionBiomechanics(BaseModel):
+    aspect_ratio: float
+    torso_angle_deg: float
+    knee_angle_deg: float
+    stride_separation: float
+    ground_proximity: float
+    orientation: str
+
+
+class VisionBoundingBox(BaseModel):
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+class VisionPredictionResponse(BaseModel):
+    predicted_activity: str
+    predicted_label: str
+    confidence: float
+    probabilities: Dict[str, float]
+    biomechanics: VisionBiomechanics
+    bounding_box: VisionBoundingBox
+    keypoints: List[VisionKeypoint]
+    skeleton_lines: List[List[str]]
+    annotated_image_base64: str
+
+
+class VisionDemoSampleItem(BaseModel):
+    id: str
+    title: str
+    activity: str
+    description: str
+    image_base64: str
+
+
+class VisionDemoSamplesResponse(BaseModel):
+    samples: List[VisionDemoSampleItem]
+
+
+class VisionBase64Request(BaseModel):
+    image_base64: str = Field(..., description="Data URL or base64 encoded image string")
+
+
+class NetworkInfoResponse(BaseModel):
+    local_ip: str
+    vision_url: str
+    stream_url: str
+    api_url: str
+
+
+

@@ -8,9 +8,22 @@ import type {
   MetricsResponse,
   ConfusionMatrixResponse,
   ApiError,
+  VisionPredictionResponse,
+  VisionDemoSamplesResponse,
+  NetworkInfoResponse,
 } from '../types/api';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+export const getBaseUrl = (): string => {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+  if (typeof window !== 'undefined' && window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return `${window.location.protocol}//${window.location.hostname}:8000`;
+  }
+  return 'http://127.0.0.1:8000';
+};
+
+const BASE_URL = getBaseUrl();
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -146,12 +159,57 @@ export const apiService = {
     }
   },
 
-  getWebSocketUrl(): string {
-    const httpUrl = BASE_URL.replace(/\/+$/, '');
-    if (httpUrl.startsWith('https://')) {
-      return httpUrl.replace('https://', 'wss://') + '/ws/stream';
+  async getVisionDemoSamples(): Promise<VisionDemoSamplesResponse> {
+    try {
+      const response = await apiClient.get<VisionDemoSamplesResponse>('/api/vision/demo-samples');
+      return response.data;
+    } catch (err) {
+      throw parseApiError(err);
     }
-    return httpUrl.replace('http://', 'ws://') + '/ws/stream';
+  },
+
+  async predictVisionFile(file: File): Promise<VisionPredictionResponse> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await apiClient.post<VisionPredictionResponse>('/api/vision/predict', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } catch (err) {
+      throw parseApiError(err);
+    }
+  },
+
+  async predictVisionBase64(imageBase64: string): Promise<VisionPredictionResponse> {
+    try {
+      const response = await apiClient.post<VisionPredictionResponse>('/api/vision/predict-base64', {
+        image_base64: imageBase64,
+      });
+      return response.data;
+    } catch (err) {
+      throw parseApiError(err);
+    }
+  },
+
+  async getNetworkInfo(): Promise<NetworkInfoResponse> {
+    try {
+      const response = await apiClient.get<NetworkInfoResponse>('/api/system/network-info');
+      return response.data;
+    } catch (err) {
+      throw parseApiError(err);
+    }
+  },
+
+  getWebSocketUrl(): string {
+    const activeBase = getBaseUrl().replace(/\/+$/, '');
+    if (activeBase.startsWith('https://')) {
+      return activeBase.replace('https://', 'wss://') + '/ws/stream';
+    }
+    return activeBase.replace('http://', 'ws://') + '/ws/stream';
   },
 };
+
 

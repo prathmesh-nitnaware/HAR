@@ -7,6 +7,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { AnalyzerPage } from './pages/AnalyzerPage';
 import { ResultsPage } from './pages/ResultsPage';
 import { LiveStreamPage } from './pages/LiveStreamPage';
+import { VisionPage } from './pages/VisionPage';
 
 export function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -35,10 +36,13 @@ export function App() {
                 {/* Main Navigation Pages */}
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/stream" element={<LiveStreamPage />} />
+                <Route path="/vision" element={<VisionPage />} />
                 <Route path="/analyzer" element={<AnalyzerPage />} />
                 <Route path="/results" element={<ResultsPage />} />
 
                 {/* Legacy route redirects */}
+                <Route path="/camera" element={<Navigate to="/vision" replace />} />
+                <Route path="/photo" element={<Navigate to="/vision" replace />} />
                 <Route path="/live" element={<Navigate to="/stream" replace />} />
                 <Route path="/models" element={<Navigate to="/" replace />} />
                 <Route path="/evaluation" element={<Navigate to="/results" replace />} />

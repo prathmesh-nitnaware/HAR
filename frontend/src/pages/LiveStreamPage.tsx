@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Activity,
   Play,
@@ -26,9 +27,12 @@ import {
   BellRing,
   HeartPulse,
   History,
+  Camera,
+  QrCode,
 } from 'lucide-react';
 import { apiService } from '../api/client';
 import type { LivePredictionMessage, LiveTelemetry, FallAlertEvent } from '../types/api';
+import { MobileConnectModal } from '../components/MobileConnectModal';
 
 // Activity metadata and icons
 const ACTIVITY_CONFIG: Record<
@@ -111,6 +115,7 @@ export const LiveStreamPage: React.FC = () => {
   // Mode: 'simulate' | 'phone'
   const [streamMode, setStreamMode] = useState<'simulate' | 'phone'>('simulate');
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
+  const [isMobileModalOpen, setIsMobileModalOpen] = useState<boolean>(false);
 
   // Simulation controls
   const [simActivity, setSimActivity] = useState<string>('walking');
@@ -632,6 +637,26 @@ export const LiveStreamPage: React.FC = () => {
 
           {/* Right Controls: Model Picker & Connection Status */}
           <div className="flex flex-wrap items-center gap-3">
+            {/* Mobile QR Connect Button */}
+            <button
+              onClick={() => setIsMobileModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs font-semibold transition-all cursor-pointer shadow-sm"
+              title="Pair Real Smartphone over Wi-Fi"
+            >
+              <QrCode className="w-4 h-4 text-blue-400" />
+              <span>Pair Phone (QR)</span>
+            </button>
+
+            {/* Link to Vision AI */}
+            <Link
+              to="/vision"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 text-xs font-semibold transition-all"
+              title="Switch to Camera & Photo Posture AI"
+            >
+              <Camera className="w-4 h-4 text-indigo-400" />
+              <span className="hidden sm:inline">Photo AI</span>
+            </Link>
+
             {/* Connection badge */}
             <div
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium ${
@@ -1225,6 +1250,12 @@ export const LiveStreamPage: React.FC = () => {
           )}
         </div>
       </div>
+      {/* Mobile Smartphone Pairing Modal */}
+      <MobileConnectModal
+        isOpen={isMobileModalOpen}
+        onClose={() => setIsMobileModalOpen(false)}
+        targetPath="/stream"
+      />
     </div>
   );
 };

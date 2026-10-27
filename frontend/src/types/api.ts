@@ -163,3 +163,58 @@ export interface ApiError {
   error_type?: string;
   status?: number;
 }
+
+export interface VisionKeypoint {
+  name: string;
+  x: number;
+  y: number;
+  confidence: number;
+}
+
+export interface VisionBiomechanics {
+  aspect_ratio: number;
+  torso_angle_deg: number;
+  knee_angle_deg: number;
+  stride_separation: number;
+  ground_proximity: number;
+  orientation: string;
+}
+
+export interface VisionBoundingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface VisionPredictionResponse {
+  predicted_activity: string;
+  predicted_label: string;
+  confidence: number;
+  probabilities: Record<string, number>;
+  biomechanics: VisionBiomechanics;
+  bounding_box: VisionBoundingBox;
+  keypoints: VisionKeypoint[];
+  skeleton_lines: [string, string][];
+  annotated_image_base64: string;
+}
+
+export interface VisionDemoSampleItem {
+  id: string;
+  title: string;
+  activity: string;
+  description: string;
+  image_base64: string;
+}
+
+export interface VisionDemoSamplesResponse {
+  samples: VisionDemoSampleItem[];
+}
+
+export interface NetworkInfoResponse {
+  local_ip: string;
+  vision_url: string;
+  stream_url: string;
+  api_url: string;
+}
+
