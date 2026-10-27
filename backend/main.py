@@ -166,6 +166,7 @@ def get_network_info():
         local_ip=local_ip,
         vision_url=f"http://{local_ip}:5173/vision",
         stream_url=f"http://{local_ip}:5173/stream",
+        mobile_url=f"http://{local_ip}:5173/mobile",
         api_url=f"http://{local_ip}:8000",
     )
 
@@ -476,6 +477,22 @@ def get_simulation_samples():
     return {"samples": results}
 
 
+ACTIVE_WEBSOCKETS: Set[WebSocket] = set()
+
+async def broadcast_ws(payload: dict, exclude: Optional[WebSocket] = None):
+    """Broadcast an event to all connected WebSockets (e.g. PC dashboard displays)."""
+    dead = set()
+    for ws in list(ACTIVE_WEBSOCKETS):
+        if ws is exclude:
+            continue
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            dead.add(ws)
+    for ws in dead:
+        ACTIVE_WEBSOCKETS.discard(ws)
+
+
 @app.websocket("/ws/stream")
 async def websocket_sensor_stream(websocket: WebSocket):
     """Real-time bi-directional WebSocket stream for live smartphone or simulated sensor data.
@@ -485,6 +502,7 @@ async def websocket_sensor_stream(websocket: WebSocket):
     continuous model classifications.
     """
     await websocket.accept()
+    ACTIVE_WEBSOCKETS.add(websocket)
     buffer = RealTimeStreamBuffer(capacity=512, window_size=128, stride=16)
     mgr = ModelManager.get_instance()
     
@@ -529,13 +547,24 @@ async def websocket_sensor_stream(websocket: WebSocket):
 
             elif action == "push":
                 reading = msg.get("data", {})
+                source = msg.get("source", "")
+                is_remote_phone = source == "remote_phone" or msg.get("broadcast", False)
                 buffer.add_reading(reading)
 
                 # Check if emergency fall engine has a triggered alert
                 fall_alert = buffer.pop_fall_alert()
                 if fall_alert is not None:
                     await websocket.send_json(fall_alert)
+                    await broadcast_ws(fall_alert, exclude=websocket)
                 
+                # If reading is from remote phone, broadcast reading to PC screen
+                if is_remote_phone and buffer.total_samples_received % 2 == 0:
+                    await broadcast_ws({
+                        "type": "remote_sensor_reading",
+                        "reading": reading,
+                        "telemetry": buffer.compute_telemetry(),
+                    }, exclude=websocket)
+
                 if buffer.should_predict():
                     window_count += 1
                     window_arr = buffer.extract_latest_window()
@@ -569,6 +598,8 @@ async def websocket_sensor_stream(websocket: WebSocket):
                                 "telemetry": buffer.compute_telemetry(),
                             }
                             await websocket.send_json(pred_payload)
+                            if is_remote_phone:
+                                await broadcast_ws(pred_payload, exclude=websocket)
                     else:
                         await websocket.send_json({
                             "type": "telemetry",
@@ -635,6 +666,8 @@ async def websocket_sensor_stream(websocket: WebSocket):
         logger.info("Live WebSocket client disconnected.")
     except Exception as exc:
         logger.error("Error in sensor stream WebSocket: %s", exc)
+    finally:
+        ACTIVE_WEBSOCKETS.discard(websocket)
 
 
 # ============================================================================
@@ -748,5 +781,63 @@ async def predict_vision_base64(req: VisionBase64Request):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Optical pose recognition failed: {str(exc)}",
         )
+
+
+# ── Remote Vision Synchronization for Smartphone Pairing ─────────────────────
+
+LATEST_REMOTE_VISION_DATA: Dict[str, Any] = {
+    "update_id": None,
+    "timestamp": 0.0,
+    "result": None,
+}
+
+
+@app.post("/api/vision/remote-upload", tags=["Vision Fallback"])
+async def remote_vision_upload(file: UploadFile = File(...)):
+    """Accept photo upload from mobile phone and broadcast result live to PC screen."""
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Uploaded file '{file.filename}' is not a valid image format.",
+        )
+
+    try:
+        import uuid
+        contents = await file.read()
+        classifier = get_vision_classifier()
+        prediction = classifier.classify_bytes(contents)
+        update_id = str(uuid.uuid4())
+
+        LATEST_REMOTE_VISION_DATA["update_id"] = update_id
+        LATEST_REMOTE_VISION_DATA["timestamp"] = time.time()
+        LATEST_REMOTE_VISION_DATA["result"] = prediction
+
+        # Broadcast update to all connected PC monitors
+        await broadcast_ws({
+            "type": "remote_vision_update",
+            "update_id": update_id,
+            "result": prediction,
+        })
+
+        return {
+            "status": "success",
+            "update_id": update_id,
+            "predicted_activity": prediction["predicted_activity"],
+            "confidence": prediction["confidence"],
+            "result": prediction,
+        }
+    except Exception as exc:
+        logger.error("Failed to process remote image upload: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Remote image pose recognition failed: {str(exc)}",
+        )
+
+
+@app.get("/api/vision/latest-remote", tags=["Vision Fallback"])
+def get_latest_remote_vision():
+    """Retrieve the latest photo pose classification uploaded from a paired smartphone."""
+    return LATEST_REMOTE_VISION_DATA
+
 
 

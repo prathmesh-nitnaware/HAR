@@ -17,18 +17,18 @@ import { apiService, getBaseUrl } from '../api/client';
 interface MobileConnectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  targetPath?: '/vision' | '/stream';
+  targetPath?: '/mobile' | '/vision' | '/stream';
 }
 
 export const MobileConnectModal: React.FC<MobileConnectModalProps> = ({
   isOpen,
   onClose,
-  targetPath = '/vision',
+  targetPath = '/mobile',
 }) => {
-  const [localIp, setLocalIp] = useState<string>('');
+  const [localIp, setLocalIp] = useState<string>('10.154.15.179');
   const [detectedPort, setDetectedPort] = useState<string>('5173');
   const [copied, setCopied] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'/vision' | '/stream'>(targetPath);
+  const [activeTab, setActiveTab] = useState<'/mobile' | '/vision' | '/stream'>(targetPath);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   useEffect(() => {
@@ -58,7 +58,7 @@ export const MobileConnectModal: React.FC<MobileConnectModalProps> = ({
         }
       })
       .catch(() => {
-        // Fallback to window hostname or placeholder
+        // Fallback to window hostname or default IP
       })
       .finally(() => {
         setIsLoading(false);
@@ -67,7 +67,7 @@ export const MobileConnectModal: React.FC<MobileConnectModalProps> = ({
 
   if (!isOpen) return null;
 
-  const displayIp = localIp || (typeof window !== 'undefined' ? window.location.hostname : '192.168.1.100');
+  const displayIp = localIp || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? window.location.hostname : '10.154.15.179');
   const portPart = detectedPort ? `:${detectedPort}` : '';
   const mobileUrl = `http://${displayIp}${portPart}${activeTab}`;
 
@@ -87,8 +87,8 @@ export const MobileConnectModal: React.FC<MobileConnectModalProps> = ({
               <Smartphone className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-semibold text-lg text-white">Connect Real-Time Smartphone</h3>
-              <p className="text-xs text-slate-400">Scan to open and use camera & sensors on your phone</p>
+              <h3 className="font-semibold text-lg text-white">Connect Physical Smartphone</h3>
+              <p className="text-xs text-slate-400">Everything will be analyzed and shown live on this PC screen</p>
             </div>
           </div>
           <button
@@ -103,28 +103,39 @@ export const MobileConnectModal: React.FC<MobileConnectModalProps> = ({
         {/* Content */}
         <div className="p-6 space-y-6">
           {/* Target Mode Selector */}
-          <div className="flex p-1 bg-slate-950/80 rounded-xl border border-slate-800">
+          <div className="flex p-1 bg-slate-950/80 rounded-xl border border-slate-800 gap-1">
             <button
-              onClick={() => setActiveTab('/vision')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-medium transition-all ${
-                activeTab === '/vision'
+              onClick={() => setActiveTab('/mobile')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg text-xs font-semibold transition-all ${
+                activeTab === '/mobile'
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Camera className="w-4 h-4" />
-              <span>Camera & Photo AI</span>
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>Mobile Companion</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('/vision')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg text-xs font-medium transition-all ${
+                activeTab === '/vision'
+                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Camera className="w-3.5 h-3.5" />
+              <span>Camera Page</span>
             </button>
             <button
               onClick={() => setActiveTab('/stream')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-medium transition-all ${
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-lg text-xs font-medium transition-all ${
                 activeTab === '/stream'
                   ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Activity className="w-4 h-4" />
-              <span>50 Hz Motion Sensors</span>
+              <Activity className="w-3.5 h-3.5" />
+              <span>Sensors Page</span>
             </button>
           </div>
 
@@ -195,13 +206,13 @@ export const MobileConnectModal: React.FC<MobileConnectModalProps> = ({
 
           {/* Quick Guide */}
           <div className="p-3 bg-blue-950/20 border border-blue-900/40 rounded-xl text-xs text-slate-300 space-y-1">
-            <div className="font-semibold text-blue-300">How to use on Phone:</div>
+            <div className="font-semibold text-blue-300">📱 Mobile Companion Mode:</div>
             <ul className="list-disc list-inside space-y-0.5 text-slate-400 text-[11px]">
               <li>
-                <strong>Camera Mode:</strong> Click the <span className="text-white">"Take Photo"</span> button to snap a photo with your phone camera and analyze instantly.
+                <strong>Wireless Camera Scanner:</strong> Snap a photo or choose an image on your phone — it will immediately project onto this PC screen with skeletal pose analysis.
               </li>
               <li>
-                <strong>Motion Mode:</strong> Tap <span className="text-white">"Activate Sensors"</span> and allow device motion permissions to stream real-time walking/sitting/fall data.
+                <strong>50 Hz IMU Streamer:</strong> Stream live phone gyroscope & accelerometer movement to this PC's live oscilloscope.
               </li>
             </ul>
           </div>

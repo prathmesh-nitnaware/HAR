@@ -235,6 +235,22 @@ export const LiveStreamPage: React.FC = () => {
           if (data.type === 'connected') {
             if (data.available_models) setAvailableModels(data.available_models);
             if (data.active_model) setActiveModel(data.active_model);
+          } else if (data.type === 'remote_sensor_reading') {
+            const rd = data.reading;
+            if (rd) {
+              waveformBufferRef.current.push({
+                ax: rd.accel_x ?? 0,
+                ay: rd.accel_y ?? 0,
+                az: rd.accel_z ?? 0,
+                gx: rd.gyro_x ?? 0,
+                gy: rd.gyro_y ?? 0,
+                gz: rd.gyro_z ?? 0,
+              });
+              if (waveformBufferRef.current.length > 200) {
+                waveformBufferRef.current.shift();
+              }
+            }
+            if (data.telemetry) setLatestTelemetry(data.telemetry);
           } else if (data.type === 'prediction') {
             setLatestPrediction(data);
             if (data.telemetry) setLatestTelemetry(data.telemetry);
@@ -1254,7 +1270,7 @@ export const LiveStreamPage: React.FC = () => {
       <MobileConnectModal
         isOpen={isMobileModalOpen}
         onClose={() => setIsMobileModalOpen(false)}
-        targetPath="/stream"
+        targetPath="/mobile"
       />
     </div>
   );

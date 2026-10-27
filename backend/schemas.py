@@ -218,6 +218,7 @@ class NetworkInfoResponse(BaseModel):
     local_ip: str
     vision_url: str
     stream_url: str
+    mobile_url: str = Field(default="", description="Mobile companion scanner URL")
     api_url: str
 
 

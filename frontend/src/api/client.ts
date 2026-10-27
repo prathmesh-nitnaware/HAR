@@ -17,8 +17,11 @@ export const getBaseUrl = (): string => {
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL;
   }
-  if (typeof window !== 'undefined' && window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    return `${window.location.protocol}//${window.location.hostname}:8000`;
+  if (typeof window !== 'undefined') {
+    // In the browser, an empty string ensures requests are relative to current origin,
+    // which Vite proxies seamlessly (via vite.config.ts) from port 5173 to port 8000.
+    // This avoids CORS, firewall blocks, and https/http mixed content issues on phones.
+    return '';
   }
   return 'http://127.0.0.1:8000';
 };
@@ -48,7 +51,7 @@ export function parseApiError(error: unknown): ApiError {
     }
     if (!axiosErr.response) {
       return {
-        detail: `Cannot connect to backend at ${BASE_URL}. Ensure the FastAPI server is running.`,
+        detail: `Cannot connect to server. Ensure backend and dev server are running.`,
         error_type: 'NetworkError',
       };
     }
@@ -203,12 +206,46 @@ export const apiService = {
     }
   },
 
-  getWebSocketUrl(): string {
-    const activeBase = getBaseUrl().replace(/\/+$/, '');
-    if (activeBase.startsWith('https://')) {
-      return activeBase.replace('https://', 'wss://') + '/ws/stream';
+  async uploadRemotePhoto(file: File): Promise<{
+    status: string;
+    update_id: string;
+    predicted_activity: string;
+    confidence: number;
+    result: VisionPredictionResponse;
+  }> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await apiClient.post('/api/vision/remote-upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } catch (err) {
+      throw parseApiError(err);
     }
-    return activeBase.replace('http://', 'ws://') + '/ws/stream';
+  },
+
+  async getLatestRemoteVision(): Promise<{
+    update_id: string | null;
+    timestamp: number;
+    result: VisionPredictionResponse | null;
+  }> {
+    try {
+      const response = await apiClient.get('/api/vision/latest-remote');
+      return response.data;
+    } catch (err) {
+      throw parseApiError(err);
+    }
+  },
+
+  getWebSocketUrl(): string {
+    if (typeof window !== 'undefined') {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${proto}//${window.location.host}/ws/stream`;
+    }
+    return 'ws://127.0.0.1:8000/ws/stream';
   },
 };
 

@@ -103,6 +103,65 @@ export const VisionPage: React.FC = () => {
   // Native phone camera input ref
   const mobileCameraInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Remote Phone Sync State
+  const [remoteAlert, setRemoteAlert] = useState<string | null>(null);
+  const lastRemoteIdRef = useRef<string | null>(null);
+
+  // Poll and listen for remote phone photo uploads
+  useEffect(() => {
+    const checkRemote = async () => {
+      try {
+        const data = await apiService.getLatestRemoteVision();
+        if (data.update_id && data.update_id !== lastRemoteIdRef.current && data.result) {
+          lastRemoteIdRef.current = data.update_id;
+          setPrediction(data.result);
+          setImagePreviewUrl(data.result.annotated_image_base64 || '');
+          setSelectedFile(null);
+          setRemoteAlert(
+            `📱 Live photo received from Phone! Detected: ${data.result.predicted_activity.toUpperCase()} (${(
+              data.result.confidence * 100
+            ).toFixed(1)}%)`
+          );
+        }
+      } catch {
+        // silent
+      }
+    };
+
+    const interval = setInterval(checkRemote, 1500);
+
+    let ws: WebSocket | null = null;
+    try {
+      const wsUrl = apiService.getWebSocketUrl();
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'remote_vision_update' && msg.result) {
+            lastRemoteIdRef.current = msg.update_id;
+            setPrediction(msg.result);
+            setImagePreviewUrl(msg.result.annotated_image_base64 || '');
+            setSelectedFile(null);
+            setRemoteAlert(
+              `📱 Live photo received from Phone! Detected: ${msg.result.predicted_activity.toUpperCase()} (${(
+                msg.result.confidence * 100
+              ).toFixed(1)}%)`
+            );
+          }
+        } catch {
+          // silent
+        }
+      };
+    } catch {
+      // fallback
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (ws) ws.close();
+    };
+  }, []);
+
   // Load demo samples on mount
   useEffect(() => {
     apiService
@@ -313,6 +372,42 @@ export const VisionPage: React.FC = () => {
             <span>Connect Phone (QR)</span>
           </button>
         </div>
+      </div>
+
+      {/* Live Remote Alert Toast */}
+      {remoteAlert && (
+        <div className="p-4 bg-emerald-950/80 border border-emerald-500/60 rounded-2xl flex items-center justify-between text-emerald-200 shadow-xl shadow-emerald-950/40 animate-bounce">
+          <div className="flex items-center gap-3">
+            <Sparkles className="w-5 h-5 text-emerald-400 shrink-0" />
+            <span className="font-semibold text-sm">{remoteAlert}</span>
+          </div>
+          <button
+            onClick={() => setRemoteAlert(null)}
+            className="text-xs text-emerald-400 hover:text-white px-2.5 py-1 rounded-lg bg-emerald-900/60 transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Wireless Phone Sync Status Banner */}
+      <div className="p-3.5 bg-slate-900/80 border border-slate-800 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+          </span>
+          <span className="text-xs font-medium text-slate-300">
+            <strong className="text-white">Wireless Phone Sync Active:</strong> Photos captured on your smartphone will immediately appear on this PC screen.
+          </span>
+        </div>
+        <button
+          onClick={() => setIsMobileModalOpen(true)}
+          className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0"
+        >
+          <Smartphone className="w-3.5 h-3.5" />
+          <span>Pair Phone (QR)</span>
+        </button>
       </div>
 
       {/* Main Content Layout */}
@@ -790,7 +885,7 @@ export const VisionPage: React.FC = () => {
       <MobileConnectModal
         isOpen={isMobileModalOpen}
         onClose={() => setIsMobileModalOpen(false)}
-        targetPath="/vision"
+        targetPath="/mobile"
       />
     </div>
   );

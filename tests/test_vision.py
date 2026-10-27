@@ -93,6 +93,23 @@ class TestVisionEndpoints(unittest.TestCase):
         data = res.json()
         self.assertEqual(data["predicted_activity"], "sitting")
 
+    def test_remote_upload_and_latest_endpoint(self):
+        p = os.path.join(self.sample_dir, "demo_standing.jpg")
+        with open(p, "rb") as f:
+            res = self.client.post("/api/vision/remote-upload", files={"file": ("standing.jpg", f, "image/jpeg")})
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["status"], "success")
+        self.assertIn("update_id", data)
+        self.assertEqual(data["predicted_activity"], "standing")
+
+        # Now test latest-remote
+        res_latest = self.client.get("/api/vision/latest-remote")
+        self.assertEqual(res_latest.status_code, 200)
+        data_latest = res_latest.json()
+        self.assertEqual(data_latest["update_id"], data["update_id"])
+        self.assertIsNotNone(data_latest["result"])
+
 
 if __name__ == "__main__":
     unittest.main()

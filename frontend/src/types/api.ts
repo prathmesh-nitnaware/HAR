@@ -215,6 +215,7 @@ export interface NetworkInfoResponse {
   local_ip: string;
   vision_url: string;
   stream_url: string;
+  mobile_url?: string;
   api_url: string;
 }
 
