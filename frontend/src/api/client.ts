@@ -124,11 +124,7 @@ export const apiService = {
       formData.append('file', file);
       formData.append('stride', String(stride));
 
-      const response = await apiClient.post<PredictResponse>('/api/predict/csv', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const response = await apiClient.post<PredictResponse>('/api/predict/csv', formData);
       return response.data;
     } catch (err) {
       throw parseApiError(err);
@@ -175,11 +171,7 @@ export const apiService = {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const response = await apiClient.post<VisionPredictionResponse>('/api/vision/predict', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const response = await apiClient.post<VisionPredictionResponse>('/api/vision/predict', formData);
       return response.data;
     } catch (err) {
       throw parseApiError(err);
@@ -216,11 +208,7 @@ export const apiService = {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const response = await apiClient.post('/api/vision/remote-upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const response = await apiClient.post('/api/vision/remote-upload', formData);
       return response.data;
     } catch (err) {
       throw parseApiError(err);
